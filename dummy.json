@@ -1,0 +1,1 @@
+{"Id":"newId1","INN":"5001104058","Content":{"Type":1,"Positions":[{"Quantity":1.0,"Price":1.0,"Tax":6,"Text":"Dummy text"}],"CheckClose":{"Payments":[{"Type":3,"Amount":1.0}],"TaxationSystem":1},"CustomerContact":"Dummy customer contact"},"key":"5001104058"}
