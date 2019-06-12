@@ -2,130 +2,25 @@
  * orange-c-client.cpp Created on: Jun 3, 2019 Author: NullinV
  */
 #include <algorithm>
-#include <chrono>
-#include <ctime>
+
 #include <fstream>
 #include <iostream>
-#include <map>
+
 #include <sstream>
-#include <string>
-#include <thread>
 
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
-#include <curl/curl.h>
-
 #include <openssl/err.h>
-#include <openssl/evp.h>
+
 #include <openssl/pem.h>
 
-struct memory_struct {
-	char *memory;
-	size_t size;
-};
+#include "orange-c-client.h"
 
-memory_struct buf;
-
-void client_init(int argc, char** argv, std::map<std::string,std::string> &conf);
-
-std::string err_string();
-void get_info(CURL *curl);
-
-std::string read_file(const std::string &filename);
-std::string trim(const std::string &s);
-std::string::size_type to_size_type(const std::string &str);
-
-size_t write_memory_callback(void *contents, size_t size, size_t nmemb,
-		void *userp);
-
-CURLcode post(CURL * curl, const std::string &body,std::map<std::string,std::string> &conf);
-CURLcode get(CURL * curl, const std::string &doc_id,std::map<std::string,std::string> &conf);
-
-int read_key(EVP_PKEY** key, const char * keyfname, const std::string * pass_phrase,
-		int key_type = 0 /*0 - private, 1 - public*/);
-int sign(const std::string &msg, std::string & signature, EVP_PKEY* pkey);
-void base64_encode(const std::string & text, std::string & base64_text);
-void base64_decode(const std::string & b64_str, std::string & d_str);
-
-int main(int argc, char ** argv) {
-
-	int ret = -1;
-	long responce_code = -1;
-	std::string doc_id(std::to_string(std::time(0)));
-	CURL *curl;
-	char const * pass_phrase = "1234";
-	std::map<std::string, std::string> conf;
-
-
-	client_init(argc, argv,conf);
-
-	curl_global_init(CURL_GLOBAL_DEFAULT);
-	curl = curl_easy_init();
-
-	if (curl) {
-		do {
-			curl_easy_setopt(curl, CURLOPT_VERBOSE, std::stol(conf["debug"]));
-			curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
-
-			curl_easy_setopt(curl, CURLOPT_SSLCERTTYPE, "PEM");
-			curl_easy_setopt(curl, CURLOPT_SSLCERT,
-					conf["certificate"].c_str());
-
-			if (pass_phrase)
-				curl_easy_setopt(curl, CURLOPT_KEYPASSWD, pass_phrase);
-			curl_easy_setopt(curl, CURLOPT_SSLKEYTYPE, "PEM");
-			curl_easy_setopt(curl, CURLOPT_SSLKEY, conf["key"].c_str());
-
-			curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-
-			curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
-					write_memory_callback);
-			curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void * )&buf);
-
-			std::string body = read_file( { argv[2] });
-			body.replace(body.find("\"Id\":\"newId1\","), 14,
-					"\"Id\":\"" + doc_id + "\",");
-			std::string::size_type max_msg_len = to_size_type(
-					conf["max_msg_len"]);
-			if (body.length() > max_msg_len) {
-				std::cout << "Max message length " << max_msg_len
-						<< " is exceeded\n";
-				break;
-			}
-
-			if (post(curl, body, conf) == CURLE_OK) {
-				curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responce_code);
-				if (responce_code == 201) {
-					long elapsed = 0;
-					do {
-						if (get(curl, doc_id, conf) == CURLE_OK) {
-							curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE,
-									&responce_code);
-							if (responce_code == 200) {
-								ret = 0;
-								break;
-							}
-						}
-						std::this_thread::sleep_for(
-								std::chrono::milliseconds(1001));
-						elapsed += 1001;
-						if (elapsed > 180000)
-							break;
-					} while (1);
-				}
-				curl_easy_cleanup(curl);
-			}
-		} while (0);
-	}
-	curl_global_cleanup();
-
-	return !!ret;
-
-}
-
-void client_init(int argc, char** argv, std::map<std::string,std::string> &conf) {
+void client_init(int argc, char** argv,
+		std::map<std::string, std::string> &conf, CURL *&curl,
+		memory_struct * buf) {
 	if (argc < 3) {
 		std::cout
 				<< "Usage: orange-c-client\n file1 - configuration\n file2 - request json\n";
@@ -147,6 +42,31 @@ void client_init(int argc, char** argv, std::map<std::string,std::string> &conf)
 	}
 	std::cout << "Request file:" << argv[2] << std::endl;
 	std::cout << std::endl;
+
+	curl_global_init(CURL_GLOBAL_DEFAULT);
+	curl = curl_easy_init();
+
+	if (curl) {
+		curl_easy_setopt(curl, CURLOPT_VERBOSE, std::stol(conf["debug"]));
+		curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+
+		curl_easy_setopt(curl, CURLOPT_SSLCERTTYPE, "PEM");
+		curl_easy_setopt(curl, CURLOPT_SSLCERT, conf["certificate"].c_str());
+
+		if (conf.count("pass_phrase"))
+			curl_easy_setopt(curl, CURLOPT_KEYPASSWD,
+					conf["pass_phrase"].c_str());
+		curl_easy_setopt(curl, CURLOPT_SSLKEYTYPE, "PEM");
+		curl_easy_setopt(curl, CURLOPT_SSLKEY, conf["key"].c_str());
+
+		curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_memory_callback);
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void * )buf);
+	} else {
+		std::cout << "CURL initialization failed\n";
+		exit(1);
+	}
 }
 
 size_t write_memory_callback(void *contents, size_t size, size_t nmemb,
@@ -169,7 +89,7 @@ size_t write_memory_callback(void *contents, size_t size, size_t nmemb,
 	return realsize;
 }
 
-void get_info(CURL *curl){
+void get_info(CURL *curl, const memory_struct *buf) {
 	CURLcode res;
 
 	do {
@@ -207,12 +127,13 @@ void get_info(CURL *curl){
 	if (res != CURLE_OK)
 		fprintf(stderr, "curl_easy_getinfo() failed: %s\n",
 				curl_easy_strerror(res));
-	if (buf.memory)
-		printf("Body: \n%s\n", buf.memory);
+	if (buf && buf->memory)
+		printf("Body: \n%s\n", buf->memory);
 	printf("\n");
 }
 
-CURLcode post(CURL * curl, const std::string &body,std::map<std::string,std::string> &conf) {
+CURLcode post(CURL * curl, const std::string &body,
+		std::map<std::string, std::string> &conf, memory_struct *buf) {
 
 	//The headers included in the linked list must not be CRLF-terminated, because libcurl adds CRLF after each header item.
 	struct curl_slist *headers = NULL;
@@ -220,6 +141,10 @@ CURLcode post(CURL * curl, const std::string &body,std::map<std::string,std::str
 	EVP_PKEY* key = NULL;
 	std::string signature;
 	std::string b64_sign;
+
+	free(buf->memory);
+	buf->memory = NULL;
+	buf->size = 0;
 
 	read_key(&key, conf["signkey"].c_str(), NULL);
 
@@ -247,13 +172,19 @@ CURLcode post(CURL * curl, const std::string &body,std::map<std::string,std::str
 		fprintf(stderr, "curl_easy_perform() POST failed: %s\n",
 				curl_easy_strerror(res));
 	}
-	get_info(curl);
+	get_info(curl, buf);
 	return res;
 }
 
-CURLcode get(CURL * curl, const std::string &doc_id,std::map<std::string,std::string> &conf) {
+CURLcode get(CURL * curl, const std::string &doc_id,
+		std::map<std::string, std::string> &conf, memory_struct *buf) {
 	struct curl_slist *headers = NULL;
 	CURLcode res;
+
+	free(buf->memory);
+	buf->memory = NULL;
+	buf->size = 0;
+
 	curl_easy_setopt(curl, CURLOPT_POST, 0L);
 
 	curl_easy_setopt(curl, CURLOPT_URL,
@@ -266,11 +197,12 @@ CURLcode get(CURL * curl, const std::string &doc_id,std::map<std::string,std::st
 		fprintf(stderr, "curl_easy_perform() GET failed: %s\n",
 				curl_easy_strerror(res));
 	}
-	get_info(curl);
+	get_info(curl, buf);
 	return res;
 }
 
-int read_key(EVP_PKEY** pkey, const char * keyfname, const std::string *pass_phrase,
+int read_key(EVP_PKEY** pkey, const char * keyfname,
+		const std::string *pass_phrase,
 		int key_type /*0 - private, 1 - public*/) {
 	int result = -1;
 
@@ -432,7 +364,7 @@ int sign(const std::string & msg, std::string & signature, EVP_PKEY * pkey) {
 			break;
 		}
 
-		signature.assign(reinterpret_cast<char*> (signature_buff),slen);
+		signature.assign(reinterpret_cast<char*>(signature_buff), slen);
 		delete[] signature_buff;
 		result = 0;
 
@@ -514,15 +446,15 @@ std::string read_file(const std::string &filename) {
 }
 
 std::string trim(const std::string &s) {
-		auto start = s.begin();
-		while (start != s.end() && std::isspace(*start)) {
-			start++;
-		}
+	auto start = s.begin();
+	while (start != s.end() && std::isspace(*start)) {
+		start++;
+	}
 
-		auto end = s.end();
-		do {
-			end--;
-		} while (std::distance(start, end) > 0 && std::isspace(*end));
+	auto end = s.end();
+	do {
+		end--;
+	} while (std::distance(start, end) > 0 && std::isspace(*end));
 
-		return std::string(start, end + 1);
+	return std::string(start, end + 1);
 }
