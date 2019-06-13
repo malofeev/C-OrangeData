@@ -18,16 +18,17 @@ void client_init(int argc, char** argv,
 		std::map<std::string, std::string> &conf, CURL *&curl,
 		memory_struct * buf) {
 	if (argc < 2) {
-		std::cout
-				<< "Usage: orange-c-client\n file - configuration\n";
+		std::cout << "Usage: orange-c-client\n file - configuration\n";
 		exit(1);
 	}
 
 	std::string line;
 	std::ifstream cfg_file(argv[1]);
-	if (!cfg_file.is_open())
+	if (!cfg_file.is_open()) {
 		std::cout << "Failed to open configuration file :" << argv[1]
 				<< std::endl;
+		exit(1);
+	}
 	std::cout << "Configuration file:" << argv[1] << std::endl;
 	while (getline(cfg_file, line)) {
 		auto pos = line.find('=');
