@@ -18,7 +18,8 @@ int main(int argc, char ** argv) {
 	std::map<std::string, std::string> conf;
 	memory_struct buf;
 
-	json_t *content, *positions, *line, *checkClose,*payments,*p_line,*request, *response;
+	json_t *content, *positions, *line, *checkClose, *payments, *p_line,
+			*request, *response;
 	json_error_t * j_error = NULL;
 	std::string ofdName, processedAt;
 
@@ -26,12 +27,22 @@ int main(int argc, char ** argv) {
 
 	doc_id = std::to_string(std::time(0));
 
-	post(curl, "", conf, &buf);//Error array example
+	post(curl, "", conf, &buf); //Error array example
 
-	request = json_pack("{ssssss}","Id",doc_id.c_str(), "INN", conf["inn"].c_str(), "key",
+	request = json_pack("{ssss}", "Id", doc_id.c_str(), "INN",
 			conf["inn"].c_str());
 
-	content = json_pack("{siss}", "Type", 1,"CustomerContact","Dummy customer contact");
+	if (conf.count("group"))
+		json_object_set_new(request, "group",
+				json_string(conf["group"].c_str()));
+	if (conf.count("key_name"))
+		json_object_set_new(request, "key",
+				json_string(conf["key_name"].c_str()));
+	else
+		json_object_set_new(request, "key", json_string(conf["inn"].c_str()));
+
+	content = json_pack("{siss}", "Type", 1, "CustomerContact",
+			"Dummy customer contact");
 
 	positions = json_array();
 	line = json_pack("{sfsfsiss}", "Quantity", 1.0, "Price", 1.0, "Tax", 6,
@@ -40,10 +51,10 @@ int main(int argc, char ** argv) {
 	json_object_set_new(content, "Positions", positions);
 
 	checkClose = json_pack("{si}", "TaxationSystem", 1);
-	payments = 	json_array();
+	payments = json_array();
 	p_line = json_pack("{sisf}", "Type", 3, "Amount", 1.0);
-	json_array_append_new(payments,p_line);
-	json_object_set_new(checkClose,"Payments",payments);
+	json_array_append_new(payments, p_line);
+	json_object_set_new(checkClose, "Payments", payments);
 	json_object_set_new(content, "CheckClose", checkClose);
 
 	json_object_set_new(request, "Content", content);
