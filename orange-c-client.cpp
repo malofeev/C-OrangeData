@@ -1,15 +1,12 @@
 /*
  * orange-c-client.cpp Created on: Jun 3, 2019 Author: NullinV
  */
-#include <algorithm>
 
 #include <fstream>
 #include <iostream>
-
 #include <sstream>
 
 #include <assert.h>
-#include <stdio.h>
 #include <string.h>
 
 #include <openssl/err.h>
@@ -39,7 +36,6 @@ void client_init(int argc, char** argv,
 		conf[trim(line.substr(0, pos))] = trim(
 				line.substr(pos + 1, line.size()));
 	}
-	std::cout << "Request file:" << argv[2] << std::endl;
 	std::cout << std::endl;
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
