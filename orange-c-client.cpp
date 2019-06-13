@@ -13,7 +13,6 @@
 #include <string.h>
 
 #include <openssl/err.h>
-
 #include <openssl/pem.h>
 
 #include "orange-c-client.h"
@@ -21,9 +20,9 @@
 void client_init(int argc, char** argv,
 		std::map<std::string, std::string> &conf, CURL *&curl,
 		memory_struct * buf) {
-	if (argc < 3) {
+	if (argc < 2) {
 		std::cout
-				<< "Usage: orange-c-client\n file1 - configuration\n file2 - request json\n";
+				<< "Usage: orange-c-client\n file - configuration\n";
 		exit(1);
 	}
 

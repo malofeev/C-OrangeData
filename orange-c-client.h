@@ -10,6 +10,8 @@
 
 #include <curl/curl.h>
 
+#include <jansson.h>
+
 #include <openssl/evp.h>
 
 struct memory_struct {
