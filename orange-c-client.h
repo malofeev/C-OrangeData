@@ -31,8 +31,8 @@ std::string::size_type to_size_type(const std::string &str);
 size_t write_memory_callback(void *contents, size_t size, size_t nmemb,
 		void *userp);
 
-CURLcode post(CURL * curl, const std::string &body,std::map<std::string,std::string> &conf, memory_struct *buf);
-CURLcode get(CURL * curl, const std::string &doc_id,std::map<std::string,std::string> &conf, memory_struct *buf);
+CURLcode post(CURL * curl, const std::string &body,std::map<std::string,std::string> &conf, memory_struct *buf, const int type = 0);
+CURLcode get(CURL * curl, const std::string &doc_id,std::map<std::string,std::string> &conf, memory_struct *buf, const int type = 0);
 
 int read_key(EVP_PKEY*& key, const std::string& keyfname, const std::string & pass_phrase = "",
 		int key_type = 0 /*0 - private, 1 - public*/);

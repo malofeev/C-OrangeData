@@ -129,7 +129,7 @@ void get_info(CURL *curl, const memory_struct *buf) {
 }
 
 CURLcode post(CURL * curl, const std::string &body,
-		std::map<std::string, std::string> &conf, memory_struct *buf) {
+		std::map<std::string, std::string> &conf, memory_struct *buf, const int type) {
 
 	//The headers included in the linked list must not be CRLF-terminated, because libcurl adds CRLF after each header item.
 	struct curl_slist *headers = NULL;
@@ -158,7 +158,7 @@ CURLcode post(CURL * curl, const std::string &body,
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
 	curl_easy_setopt(curl, CURLOPT_POST, 1L);
-	curl_easy_setopt(curl, CURLOPT_URL, conf["url"].c_str());
+	curl_easy_setopt(curl, CURLOPT_URL, (conf["url"]+(type?"corrections/" : "documents/")).c_str());
 
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, body.length());
@@ -173,7 +173,7 @@ CURLcode post(CURL * curl, const std::string &body,
 }
 
 CURLcode get(CURL * curl, const std::string &doc_id,
-		std::map<std::string, std::string> &conf, memory_struct *buf) {
+		std::map<std::string, std::string> &conf, memory_struct *buf,const int type) {
 	struct curl_slist *headers = NULL;
 	CURLcode res;
 
@@ -184,7 +184,7 @@ CURLcode get(CURL * curl, const std::string &doc_id,
 	curl_easy_setopt(curl, CURLOPT_POST, 0L);
 
 	curl_easy_setopt(curl, CURLOPT_URL,
-			(conf["url"] + conf["inn"] + "/status/" + doc_id).c_str());
+			(conf["url"] +(type?"corrections/" : "documents/")+ conf["inn"] + "/status/" + doc_id).c_str());
 	headers = curl_slist_append(headers,
 			"Content-Type: application/json; charset=utf-8");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
