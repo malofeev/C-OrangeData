@@ -14,32 +14,41 @@
 
 #include <openssl/evp.h>
 
-struct memory_struct {
-	char *memory = NULL;
-	size_t size = 0;
+enum request_methods{GET,POST};
+
+typedef std::map<std::string,std::string> str_map;
+struct http_request{
+	request_methods method;
+	std::string request_target;
+	str_map headers;
+	std::string body;
 };
 
-void client_init(int argc, char** argv, std::map<std::string,std::string> &conf,CURL*& curl, memory_struct *buf);
+struct http_response{
+	int status_code;
+	std::string reason_phrase;
+	str_map headers;
+	std::string body;
+};
+
+void client_init(const int argc, const char** argv, str_map &conf,SSL_CTX *&ctx, EVP_PKEY *&skey);
+void client_clean(SSL_CTX * const ctx, EVP_PKEY * const skey);
 
 std::string err_string();
-void get_info(CURL *curl, const memory_struct * buf = NULL);
 
 std::string read_file(const std::string &filename);
 std::string trim(const std::string &s);
 std::string::size_type to_size_type(const std::string &str);
 
-size_t write_memory_callback(void *contents, size_t size, size_t nmemb,
-		void *userp);
+int post_doc(const std::string &json, int doc_type = 0);
+int get_status(const std::string &doc_id, int doc_type = 0);
+int perform(BIO * stream, const http_request &req, http_response &res);
 
-CURLcode post(CURL * curl, const std::string &body,std::map<std::string,std::string> &conf, memory_struct *buf);
-CURLcode get(CURL * curl, const std::string &doc_id,std::map<std::string,std::string> &conf, memory_struct *buf);
 
 int read_key(EVP_PKEY*& key, const std::string& keyfname, const std::string & pass_phrase = "",
 		int key_type = 0 /*0 - private, 1 - public*/);
 int sign(const std::string &msg, std::string & signature, EVP_PKEY* const pkey);
 void base64_encode(const std::string & text, std::string & base64_text);
 void base64_decode(const std::string & b64_str, std::string & d_str);
-
-
 
 #endif /* ORANGE_C_CLIENT_H_ */

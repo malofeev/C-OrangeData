@@ -65,69 +65,6 @@ void client_init(int argc, char** argv,
 	}
 }
 
-size_t write_memory_callback(void *contents, size_t size, size_t nmemb,
-		void *userp) {
-	size_t realsize = size * nmemb;
-	struct memory_struct *mem = (struct memory_struct *) userp;
-
-	char *ptr = (char*) realloc(mem->memory, mem->size + realsize + 1);
-	if (!ptr) {
-		/* out of memory! */
-		printf("not enough memory (realloc returned NULL)\n");
-		return 0;
-	}
-
-	mem->memory = ptr;
-	memcpy(&(mem->memory[mem->size]), contents, realsize); //
-	mem->size += realsize;
-	mem->memory[mem->size] = 0;
-
-	return realsize;
-}
-
-void get_info(CURL *curl, const memory_struct *buf) {
-	CURLcode res;
-
-	do {
-		long long_arg;
-		char * ct = NULL;
-		curl_off_t curl_off_t_arg;
-
-		res = curl_easy_getinfo(curl, CURLINFO_SSL_VERIFYRESULT, &long_arg);
-		if (res != CURLE_OK)
-			break;
-		printf("The peer verification said %s\t", long_arg ? "Failed" : "Ok");
-
-		res = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &long_arg);
-		if (res != CURLE_OK)
-			break;
-		printf("Response code: %ld\n", long_arg);
-
-		res = curl_easy_getinfo(curl, CURLINFO_REQUEST_SIZE, &long_arg);
-		if (res != CURLE_OK)
-			break;
-		printf("Request size: %ld bytes\t", long_arg);
-
-		res = curl_easy_getinfo(curl, CURLINFO_SIZE_UPLOAD_T, &curl_off_t_arg);
-		if (res != CURLE_OK)
-			break;
-		printf("Uploaded: %" CURL_FORMAT_CURL_OFF_T " bytes\n", curl_off_t_arg);
-
-		res = curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &ct);
-		if (res != CURLE_OK)
-			break;
-		if (ct)
-			printf("Content-Type: %s\n", ct);
-
-	} while (0);
-	if (res != CURLE_OK)
-		fprintf(stderr, "curl_easy_getinfo() failed: %s\n",
-				curl_easy_strerror(res));
-	if (buf && buf->memory)
-		printf("Body: \n%s\n", buf->memory);
-	printf("\n");
-}
-
 CURLcode post(CURL * curl, const std::string &body,
 		std::map<std::string, std::string> &conf, memory_struct *buf) {
 
