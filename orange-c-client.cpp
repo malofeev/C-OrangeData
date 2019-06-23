@@ -142,7 +142,7 @@ CURLcode post(CURL * curl, const std::string &body,
 	buf->memory = NULL;
 	buf->size = 0;
 
-	read_key(&key, conf["signkey"].c_str(), NULL);
+	read_key(key, conf["signkey"]);
 
 	sign(body, signature, key);
 	base64_encode(signature, b64_sign);
@@ -197,31 +197,28 @@ CURLcode get(CURL * curl, const std::string &doc_id,
 	return res;
 }
 
-int read_key(EVP_PKEY** pkey, const char * keyfname,
-		const std::string *pass_phrase,
+int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
+		const std::string &pass_phrase,
 		int key_type /*0 - private, 1 - public*/) {
 	int result = -1;
 
-	if (!pkey)
-		return -1;
-
-	if (*pkey != NULL) {
-		EVP_PKEY_free(*pkey);
-		*pkey = NULL;
+	if (pkey != NULL) {
+		EVP_PKEY_free(pkey);
+		pkey = NULL;
 	}
 
 	RSA *rsa = NULL;
 	char *w_pass_phrase = NULL;
 
 	do {
-		*pkey = EVP_PKEY_new();
-		assert(*pkey != NULL);
-		if (*pkey == NULL) {
+		pkey = EVP_PKEY_new();
+		assert(pkey != NULL);
+		if (pkey == NULL) {
 			std::cout << "EVP_PKEY_new failed (1)," << err_string();
 			break;
 		}
 
-		FILE *key_file = fopen(keyfname, "r");
+		FILE *key_file = fopen(keyfname.c_str(), "r");
 		assert(key_file != NULL);
 		if (key_file == NULL) {
 			std::cout << "EVP_PKEY_new failed (1)," << err_string();
@@ -230,9 +227,9 @@ int read_key(EVP_PKEY** pkey, const char * keyfname,
 
 		int rc;
 
-		if (pass_phrase) {
-			w_pass_phrase = new char[(*pass_phrase).length() + 1];
-			strcpy(w_pass_phrase, (*pass_phrase).c_str());
+		if (pass_phrase !="") {
+			w_pass_phrase = new char[pass_phrase.length() + 1];
+			strcpy(w_pass_phrase, pass_phrase.c_str());
 		}
 		if (key_type) {
 			rsa = PEM_read_RSA_PUBKEY(key_file, &rsa, NULL, w_pass_phrase);
@@ -242,7 +239,7 @@ int read_key(EVP_PKEY** pkey, const char * keyfname,
 				std::cout << "PEM_read_RSAPublicKey failed, " << err_string();
 				break;
 			}
-			rc = EVP_PKEY_assign_RSA(*pkey, RSAPublicKey_dup(rsa));
+			rc = EVP_PKEY_assign_RSA(pkey, RSAPublicKey_dup(rsa));
 		} else {
 			rsa = PEM_read_RSAPrivateKey(key_file, &rsa, NULL, w_pass_phrase);
 			fclose(key_file);
@@ -251,7 +248,7 @@ int read_key(EVP_PKEY** pkey, const char * keyfname,
 				std::cout << "PEM_read_RSAPrivateKey failed, " << err_string();
 				break;
 			}
-			rc = EVP_PKEY_assign_RSA(*pkey, RSAPrivateKey_dup(rsa));
+			rc = EVP_PKEY_assign_RSA(pkey, RSAPrivateKey_dup(rsa));
 		}
 
 		assert(rc == 1);

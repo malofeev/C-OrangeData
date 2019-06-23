@@ -19,7 +19,7 @@ struct memory_struct {
 	size_t size = 0;
 };
 
-void client_init(int argc, char** argv, std::map<std::string,std::string> &conf,CURL *&curl, memory_struct *buf);
+void client_init(int argc, char** argv, std::map<std::string,std::string> &conf,CURL*& curl, memory_struct *buf);
 
 std::string err_string();
 void get_info(CURL *curl, const memory_struct * buf = NULL);
@@ -34,7 +34,7 @@ size_t write_memory_callback(void *contents, size_t size, size_t nmemb,
 CURLcode post(CURL * curl, const std::string &body,std::map<std::string,std::string> &conf, memory_struct *buf);
 CURLcode get(CURL * curl, const std::string &doc_id,std::map<std::string,std::string> &conf, memory_struct *buf);
 
-int read_key(EVP_PKEY** key, const char * keyfname, const std::string * pass_phrase,
+int read_key(EVP_PKEY*& key, const std::string& keyfname, const std::string & pass_phrase = "",
 		int key_type = 0 /*0 - private, 1 - public*/);
 int sign(const std::string &msg, std::string & signature, EVP_PKEY* pkey);
 void base64_encode(const std::string & text, std::string & base64_text);
