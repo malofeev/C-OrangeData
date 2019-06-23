@@ -36,7 +36,7 @@ CURLcode get(CURL * curl, const std::string &doc_id,std::map<std::string,std::st
 
 int read_key(EVP_PKEY*& key, const std::string& keyfname, const std::string & pass_phrase = "",
 		int key_type = 0 /*0 - private, 1 - public*/);
-int sign(const std::string &msg, std::string & signature, EVP_PKEY* pkey);
+int sign(const std::string &msg, std::string & signature, EVP_PKEY* const pkey);
 void base64_encode(const std::string & text, std::string & base64_text);
 void base64_decode(const std::string & b64_str, std::string & d_str);
 

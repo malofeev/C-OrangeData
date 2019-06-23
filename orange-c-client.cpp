@@ -270,7 +270,7 @@ int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 	return !!result;
 }
 
-int sign(const std::string & msg, std::string & signature, EVP_PKEY * pkey) {
+int sign(const std::string & msg, std::string & signature, EVP_PKEY * const pkey) {
 	int result = -1;
 
 	if (!pkey) {
