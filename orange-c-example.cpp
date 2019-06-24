@@ -12,7 +12,7 @@ int main(int argc, char ** argv) {
 
 	SSL_CTX* ctx = NULL;
 	BIO *web = NULL;
-	EVP_PKEY * skey;
+	EVP_PKEY * skey = NULL;
 
 	int ret = -1;
 	long responce_code = -1;

@@ -185,13 +185,13 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 		}
 		std::cout << std::endl;
 
-		if (conf.count("url")) {
+		if (!conf.count("url")) {
 			std::cout << "Configuration file doesn't have url line"
 					<< std::endl;
 			exit(1);
 		}
 
-		if (conf.count("inn")) {
+		if (!conf.count("inn")) {
 			std::cout << "Configuration file doesn't have inn line"
 					<< std::endl;
 			exit(1);
