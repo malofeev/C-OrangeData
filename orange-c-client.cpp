@@ -1,74 +1,412 @@
 /*
  * orange-c-client.cpp Created on: Jun 3, 2019 Author: NullinV
  */
-
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 
-#include <assert.h>
-#include <string.h>
-
 #include <openssl/err.h>
 #include <openssl/pem.h>
+#include <openssl/ssl.h>
 
 #include "orange-c-client.h"
 
-void client_init(int argc, char** argv,
-		std::map<std::string, std::string> &conf, CURL *&curl,
-		memory_struct * buf) {
-	if (argc < 2) {
-		std::cout << "Usage: orange-c-client\n file - configuration\n";
-		exit(1);
-	}
+void print_cn_name(const char* label, X509_NAME* const name) {
+	int idx = -1, success = 0;
+	unsigned char *utf8 = NULL;
 
-	std::string line;
-	std::ifstream cfg_file(argv[1]);
-	if (!cfg_file.is_open()) {
-		std::cout << "Failed to open configuration file :" << argv[1]
-				<< std::endl;
-		exit(1);
-	}
-	std::cout << "Configuration file:" << argv[1] << std::endl;
-	while (getline(cfg_file, line)) {
-		auto pos = line.find('=');
-		if (pos != std::string::npos)
-			std::cout << line << std::endl;
-		conf[trim(line.substr(0, pos))] = trim(
-				line.substr(pos + 1, line.size()));
-	}
-	std::cout << std::endl;
+	do {
+		if (!name)
+			break;
 
-	curl_global_init(CURL_GLOBAL_DEFAULT);
-	curl = curl_easy_init();
+		idx = X509_NAME_get_index_by_NID(name, NID_commonName, -1);
+		if (!(idx > -1))
+			break;
 
-	if (curl) {
-		curl_easy_setopt(curl, CURLOPT_VERBOSE, std::stol(conf["debug"]));
-		curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+		X509_NAME_ENTRY* entry = X509_NAME_get_entry(name, idx);
+		if (!entry)
+			break;
 
-		curl_easy_setopt(curl, CURLOPT_SSLCERTTYPE, "PEM");
-		curl_easy_setopt(curl, CURLOPT_SSLCERT, conf["certificate"].c_str());
+		ASN1_STRING* data = X509_NAME_ENTRY_get_data(entry);
+		if (!data)
+			break;
 
-		if (conf.count("pass_phrase"))
-			curl_easy_setopt(curl, CURLOPT_KEYPASSWD,
-					conf["pass_phrase"].c_str());
-		curl_easy_setopt(curl, CURLOPT_SSLKEYTYPE, "PEM");
-		curl_easy_setopt(curl, CURLOPT_SSLKEY, conf["key"].c_str());
+		int length = ASN1_STRING_to_UTF8(&utf8, data);
+		if (!utf8 || !(length > 0))
+			break;
 
-		curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+		std::cout << label << ": " << utf8;
+		success = 1;
 
-		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_memory_callback);
-		curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void * )buf);
-	} else {
-		std::cout << "CURL initialization failed\n";
-		exit(1);
-	}
+	} while (0);
+
+	if (utf8)
+		OPENSSL_free(utf8);
+
+	if (!success)
+		std::cout << label << ": <not available>" << std::endl;
+	;
 }
 
-CURLcode post(CURL * curl, const std::string &body,
-		std::map<std::string, std::string> &conf, memory_struct *buf) {
+void print_san_name(const char* label, X509* const cert) {
+	int success = 0;
+	GENERAL_NAMES* names = NULL;
+	unsigned char* utf8 = NULL;
 
-	//The headers included in the linked list must not be CRLF-terminated, because libcurl adds CRLF after each header item.
+	do {
+		if (!cert)
+			break;
+
+		names = X509_get_ext_d2i(cert, NID_subject_alt_name, 0, 0);
+		if (!names)
+			break;
+
+		int i = 0, count = sk_GENERAL_NAME_num(names);
+		if (!count)
+			break;
+
+		for (i = 0; i < count; ++i) {
+			GENERAL_NAME* entry = sk_GENERAL_NAME_value(names, i);
+			if (!entry)
+				continue;
+
+			if (GEN_DNS == entry->type) {
+				int len1 = 0, len2 = -1;
+
+				len1 = ASN1_STRING_to_UTF8(&utf8, entry->d.dNSName);
+				if (utf8) {
+					len2 = (int) strlen((const char*) utf8);
+				}
+
+				if (len1 != len2) {
+					std::cerr
+							<< "  Strlen and ASN1_STRING size do not match (embedded null?): "
+							<< len2 << " vs " << len1 << std::endl;
+				}
+
+				/* If there's a problem with string lengths, then     */
+				/* we skip the candidate and move on to the next.     */
+				/* Another policy would be to fails since it probably */
+				/* indicates the client is under attack.              */
+				if (utf8 && len1 && len2 && (len1 == len2)) {
+					std::cout << label << ": " << utf8 << std::endl;
+					success = 1;
+				}
+
+				if (utf8) {
+					OPENSSL_free(utf8), utf8 = NULL;
+				}
+			} else {
+				std::cerr << "Unknown GENERAL_NAME type: " << entry->type
+						<< std::endl;
+			}
+		}
+
+	} while (0);
+
+	if (names)
+		GENERAL_NAMES_free(names);
+
+	if (utf8)
+		OPENSSL_free(utf8);
+
+	if (!success)
+		std::cout << label << ": <not available>" << std::endl;
+}
+int verify_callback(int preverify, X509_STORE_CTX* x509_ctx) {
+
+	int depth = X509_STORE_CTX_get_error_depth(x509_ctx);
+	int err = X509_STORE_CTX_get_error(x509_ctx);
+
+	X509* cert = X509_STORE_CTX_get_current_cert(x509_ctx);
+	X509_NAME* iname = cert ? X509_get_issuer_name(cert) : NULL;
+	X509_NAME* sname = cert ? X509_get_subject_name(cert) : NULL;
+
+	fprintf(stdout, "verify_callback (depth=%d)(preverify=%d)\n", depth,
+			preverify);
+
+	print_cn_name("Issuer (cn)", iname);
+
+	print_cn_name("Subject (cn)", sname);
+
+	if (depth == 0) {
+		print_san_name("Subject (san)", cert);
+	}
+
+	if (preverify == 0) {
+		if (err == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY)
+			std::cout
+					<< "  Error = X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY"
+					<< std::endl;
+		else if (err == X509_V_ERR_CERT_UNTRUSTED)
+			std::cout << "  Error = X509_V_ERR_CERT_UNTRUSTED" << std::endl;
+		else if (err == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN)
+			std::cout << "  Error = X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN"
+					<< std::endl;
+		else if (err == X509_V_ERR_CERT_NOT_YET_VALID)
+			std::cout << "  Error = X509_V_ERR_CERT_NOT_YET_VALID" << std::endl;
+		else if (err == X509_V_ERR_CERT_HAS_EXPIRED)
+			std::cout << "  Error = X509_V_ERR_CERT_HAS_EXPIRED" << std::endl;
+		else if (err == X509_V_OK)
+			std::cout << "  Error = X509_V_OK" << std::endl;
+		else
+			std::cout << "  Error = " << err << std::endl;
+	}
+	return 1;
+}
+
+void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
+		EVP_PKEY *&skey) {
+	int ret = 1;
+
+	do {
+
+		if (argc < 2) {
+			std::cout << "Usage: orange-c-client\n file - configuration\n";
+			break;
+		}
+
+		std::string line;
+		std::ifstream cfg_file(argv[1]);
+		if (!cfg_file.is_open()) {
+			std::cout << "Failed to open configuration file :" << argv[1]
+					<< std::endl;
+			break;
+		}
+		std::cout << "Configuration file:" << argv[1] << std::endl;
+		while (getline(cfg_file, line)) {
+			auto pos = line.find('=');
+			if (pos != std::string::npos)
+				std::cout << line << std::endl;
+			conf[trim(line.substr(0, pos))] = trim(
+					line.substr(pos + 1, line.size()));
+		}
+		std::cout << std::endl;
+
+		if (conf.find("url")) {
+			std::cout << "Configuration file doesn't have url line"
+					<< std::endl;
+			exit(1);
+		}
+
+		if (conf.find("signkey")) {
+			if (!read_key(skey, conf["signkey"])) {
+				std::cout << "Failed to read signkey file" << std::endl;
+				break;
+			}
+		} else {
+			std::cout << "Configuration file doesn't have signkey line"
+					<< std::endl;
+			break;
+		};
+
+		SSL_library_init();
+		SSL_load_error_strings();
+		;
+
+		const SSL_METHOD* method = TLS_method();
+
+		if (!(NULL != method)) {
+			std::cerr << err_string("TLS_method");
+			break;
+		}
+
+		ctx = SSL_CTX_new(method);
+
+		if (!(ctx != NULL)) {
+			std::cerr << err_string("SSL_CTX_new");
+			break;
+		}
+
+		if (conf.find("pass_phrase")) {
+			char * w_pass_phrase = new char[conf["pass_phrase"].length() + 1];
+			std::strcpy(w_pass_phrase, conf["pass_phrase"].c_str());
+			SSL_CTX_set_default_passwd_cb_userdata(ctx, w_pass_phrase);
+			delete[] w_pass_phrase;
+		}
+
+		if (conf.find("certificate")) {
+			if (SSL_CTX_use_certificate_file(ctx, conf["certificate"].c_str(),
+			SSL_FILETYPE_PEM) != 1) {
+				std::cerr << err_string("SSL_CTX_use_certificate_file");
+				break;
+			}
+		} else {
+			std::cout << "Configuration file doesn't have certificate line"
+					<< std::endl;
+			break;
+		}
+
+		if (conf.find("key")) {
+			if (SSL_CTX_use_RSAPrivateKey_file(ctx, conf["key"].c_str(),
+			SSL_FILETYPE_PEM) != 1) {
+				std::cerr << err_string("SSL_CTX_use_RSAPrivateKey_file");
+				break;
+			}
+		} else {
+			std::cout << "Configuration file doesn't have key line"
+					<< std::endl;
+			break;
+		}
+
+		SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, verify_callback);
+		SSL_CTX_set_verify_depth(ctx, 5);
+
+		SSL_CTX_set_options(ctx,
+		SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
+
+		if (conf.find("verify_locations"))
+			if (SSL_CTX_load_verify_locations(ctx, NULL,
+					conf["verify_locations"].c_str()) != 1) {
+				std::cerr << err_string("SSL_CTX_load_verify_locations");
+				break;
+			}
+		ret = 0;
+	} while (0);
+	if (!!ret)
+		exit(1);
+}
+
+void client_clean(SSL_CTX *&ctx, EVP_PKEY *&skey) {
+	if (NULL != ctx)
+		SSL_CTX_free(ctx);
+	if (NULL != skey)
+		EVP_PKEY_free(skey);
+}
+
+int connect(SSL_CTX * const ctx, BIO*&web, std::string url) {
+	int ret = 0;
+	SSL *ssl = NULL;
+	std::string host = get_host(url);
+	std::string port = get_port(url);
+
+	do {
+		web = BIO_new_ssl_connect(ctx);
+		if (!(web != NULL)) {
+			std::cerr << err_string("BIO_new_ssl_connect");
+			break;
+		}
+
+		if (BIO_set_conn_hostname(web, (host+ ":" + port).c_str()) != 1) {
+			std::cerr << err_string("BIO_set_conn_hostname");
+			break;
+		}
+
+		BIO_get_ssl(web, &ssl);
+
+		if (!(ssl != NULL)) {
+			std::cerr << err_string("BIO_get_ssl");
+			break;
+		}
+
+		if (SSL_set_cipher_list(ssl, PREFERRED_CIPHERS) != 1) {
+			std::cerr << err_string("SSL_set_cipher_list");
+			break;
+		}
+
+		if (SSL_set_tlsext_host_name(ssl, host.c_str()) != 1) {
+			std::cerr << err_string("SSL_set_tlsext_host_name");
+			break;
+		}
+
+		if (BIO_do_connect(web) != 1) {
+			std::cerr << err_string("BIO_do_connect");
+			break;
+		}
+
+		if (BIO_do_handshake(web) != 1) {
+			std::cerr << err_string("BIO_do_handshake");
+			break;
+		}
+
+		X509* cert = SSL_get_peer_certificate(ssl);
+		if (cert) {
+			X509_free(cert);
+		} else {
+			std::cerr
+					<< err_string(
+							"SSL_get_peer_certificate : X509_V_ERR_APPLICATION_VERIFICATION");
+			break;
+		}
+
+		if (BIO_do_handshake(web) != 1) {
+			std::cerr << err_string("SSL_get_verify_result(ssl)");
+			break;
+		}
+
+		ret = 1;
+	} while (0);
+	return !!ret;
+}
+
+int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
+	int ret = 0;
+	BIO *web = NULL, *out = NULL;
+	BUF_MEM *bufferPtr;
+	std::string req_str, res_str;
+
+	do {
+		if (connect(ctx, web, req.headers["host"]) != 1)
+			break;
+
+		req_str += req.method + ' ' + req.request_target;
+		if (req.query.size() > 0) {
+			req_str += '?';
+			for (auto it : req.query) {
+				req_str += it.first + '=' + it.second;
+				if (it != req.query.size - 1)
+					req_str += '&';
+			}
+		}
+		req_str += " HTTP/1.1\r\n";
+
+		for (auto it : req.headers)
+			req_str += it.first + ':' + it.second + "\r\ n";
+
+		if (req.method == POST)
+			req_str += "\r\ n" + req.body;
+
+		if (int len = BIO_puts(web, req_str.c_str()) != req_str.length()) {
+			std::cerr << err_string("BIO_puts");
+			std::cerr << "Put  " << len << 'b from ' << req_str.length() << "b"
+					<< std::endl;
+			break;
+		}
+
+		int len = 0;
+		out = BIO_new(BIO_s_mem());
+		do {
+			char buff[1536] = { };
+
+			len = BIO_read(web, buff, sizeof(buff));
+
+			if (len > 0)
+				BIO_write(out, buff, len);
+		} while (len > 0 || BIO_should_retry(web));
+
+		BIO_flush(out);
+		BIO_get_mem_ptr(out, &bufferPtr);
+
+		if (len > 0)
+			res_str.assign((*bufferPtr).data, (*bufferPtr).length);
+		else
+			break;
+
+		ret = 1;
+	} while (0);
+
+	if (out != NULL)
+		BIO_free_all(out);
+
+	if (web != NULL)
+		BIO_free_all(web);
+	return !!ret;
+}
+
+int (const str_map &conf, SSL_CTX *const ctx, const EVP_PKEY * const skey,const std::string &json, int type) {
+
+//The headers included in the linked list must not be CRLF-terminated, because libcurl adds CRLF after each header item.
 	struct curl_slist *headers = NULL;
 	CURLcode res;
 	EVP_PKEY* key = NULL;
@@ -164,7 +502,7 @@ int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 
 		int rc;
 
-		if (pass_phrase !="") {
+		if (pass_phrase != "") {
 			w_pass_phrase = new char[pass_phrase.length() + 1];
 			strcpy(w_pass_phrase, pass_phrase.c_str());
 		}
@@ -207,7 +545,8 @@ int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 	return !!result;
 }
 
-int sign(const std::string & msg, std::string & signature, EVP_PKEY * const pkey) {
+int sign(const std::string & msg, std::string & signature,
+		EVP_PKEY * const pkey) {
 	int result = -1;
 
 	if (!pkey) {
@@ -312,7 +651,14 @@ void base64_encode(const std::string &text, std::string &base64_text) {
 	BIO *bio, *b64;
 	BUF_MEM *bufferPtr;
 
+	/*
+	 * BIO_f_base64() is a filter BIO that base64 encodes any data written through it and decodes any data read through it.
+	 */
 	b64 = BIO_new(BIO_f_base64());
+	/*
+	 * A memory BIO is a source/sink BIO which uses memory for its I/O.
+	 * Data written to a memory BIO is stored in a BUF_MEM structure which is extended as appropriate to accommodate the stored data
+	 */
 	bio = BIO_new(BIO_s_mem());
 	bio = BIO_push(b64, bio);
 	BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL); // Don't add '\n' by BIO_f_base64 according to https://tools.ietf.org/html/rfc2045#section-6.8
@@ -360,12 +706,6 @@ std::string::size_type to_size_type(const std::string &str) {
 	return res;
 }
 
-std::string err_string() {
-	unsigned long err = ERR_get_error();
-	return "error 0x" + std::to_string(err) + "\t" + ERR_error_string(err, NULL)
-			+ "\n";
-}
-
 std::string read_file(const std::string &filename) {
 
 	std::ifstream ifs(filename, std::ios::binary);
@@ -388,3 +728,14 @@ std::string trim(const std::string &s) {
 
 	return std::string(start, end + 1);
 }
+
+std::string err_string(std::string label) {
+	unsigned long err = ERR_get_error();
+	const char* const str = ERR_reason_error_string(err);
+	if (str)
+		return str;
+	else
+		return label + " error 0x" + std::to_string(err) + "\t"
+				+ ERR_error_string(err, NULL) + "\n";
+}
+

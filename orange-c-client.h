@@ -8,44 +8,57 @@
 #include <map>
 #include <string>
 
-#include <curl/curl.h>
-
 #include <jansson.h>
 
 #include <openssl/evp.h>
+#include <openssl/x509v3.h>
 
-enum request_methods{GET,POST};
+enum request_methods {
+	GET, POST
+};
 
-typedef std::map<std::string,std::string> str_map;
-struct http_request{
+typedef std::map<std::string, std::string> str_map;
+struct http_request {
 	request_methods method;
 	std::string request_target;
+	str_map query;
 	str_map headers;
 	std::string body;
 };
 
-struct http_response{
+struct http_response {
 	int status_code;
 	std::string reason_phrase;
 	str_map headers;
 	std::string body;
 };
+const char* const PREFERRED_CIPHERS =
+		"kEECDH:kEDH:kRSA:AESGCM:AES256:AES128:3DES:SHA256:SHA84:SHA1:!aNULL:!eNULL:!EXP:!LOW:!MEDIUM!ADH:!AECDH";
 
-void client_init(const int argc, const char** argv, str_map &conf,SSL_CTX *&ctx, EVP_PKEY *&skey);
-void client_clean(SSL_CTX * const ctx, EVP_PKEY * const skey);
+void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
+		EVP_PKEY *&skey);
+void client_clean(SSL_CTX *&ctx, EVP_PKEY *&skey);
 
-std::string err_string();
+std::string err_string(std::string label = "");
 
 std::string read_file(const std::string &filename);
 std::string trim(const std::string &s);
 std::string::size_type to_size_type(const std::string &str);
 
-int post_doc(const std::string &json, int doc_type = 0);
-int get_status(const std::string &doc_id, int doc_type = 0);
-int perform(BIO * stream, const http_request &req, http_response &res);
+std::string get_host(const std::string &url);
+std::string get_port(const std::string &url);
+std::string get_target(const std::string &url);
 
+int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url);
+int perform(SSL_CTX * const ctx, http_request &req, http_response &res);
 
-int read_key(EVP_PKEY*& key, const std::string& keyfname, const std::string & pass_phrase = "",
+int post_doc(const str_map &conf, SSL_CTX * const ctx,
+		const EVP_PKEY * const skey, const std::string &json, int type = 0);
+int get_status(const str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
+		int type = 0);
+
+int read_key(EVP_PKEY*& key, const std::string& keyfname,
+		const std::string & pass_phrase = "",
 		int key_type = 0 /*0 - private, 1 - public*/);
 int sign(const std::string &msg, std::string & signature, EVP_PKEY* const pkey);
 void base64_encode(const std::string & text, std::string & base64_text);
