@@ -16,7 +16,7 @@ int main(int argc, char ** argv) {
 
 	int ret = -1;
 	long responce_code = -1;
-	std::string doc_id;
+	std::string doc_id, rstr;
 
 	str_map conf;
 
@@ -67,7 +67,7 @@ int main(int argc, char ** argv) {
 	if (body.length() > max_msg_len) {
 		std::cout << "Max message length " << max_msg_len << " is exceeded\n";
 	}
-	get_status(conf, ctx, "newId1");
+	get_status(conf, ctx, "newId1",rstr);
 	/*if (post(curl, body, conf, &buf) == CURLE_OK) {
 	 curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responce_code);
 	 if (responce_code == 201) {

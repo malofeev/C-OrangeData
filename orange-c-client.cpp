@@ -58,7 +58,8 @@ void print_san_name(const char* label, X509* const cert) {
 		if (!cert)
 			break;
 
-		names = X509_get_ext_d2i(cert, NID_subject_alt_name, 0, 0);
+		names = (GENERAL_NAMES*) X509_get_ext_d2i(cert, NID_subject_alt_name, 0,
+				0);
 		if (!names)
 			break;
 
@@ -184,13 +185,19 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 		}
 		std::cout << std::endl;
 
-		if (conf.find("url")) {
+		if (conf.count("url")) {
 			std::cout << "Configuration file doesn't have url line"
 					<< std::endl;
 			exit(1);
 		}
 
-		if (conf.find("signkey")) {
+		if (conf.count("inn")) {
+			std::cout << "Configuration file doesn't have inn line"
+					<< std::endl;
+			exit(1);
+		}
+
+		if (conf.count("signkey")) {
 			if (!read_key(skey, conf["signkey"])) {
 				std::cout << "Failed to read signkey file" << std::endl;
 				break;
@@ -219,14 +226,14 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 			break;
 		}
 
-		if (conf.find("pass_phrase")) {
+		if (conf.count("pass_phrase")) {
 			char * w_pass_phrase = new char[conf["pass_phrase"].length() + 1];
 			std::strcpy(w_pass_phrase, conf["pass_phrase"].c_str());
 			SSL_CTX_set_default_passwd_cb_userdata(ctx, w_pass_phrase);
 			delete[] w_pass_phrase;
 		}
 
-		if (conf.find("certificate")) {
+		if (conf.count("certificate")) {
 			if (SSL_CTX_use_certificate_file(ctx, conf["certificate"].c_str(),
 			SSL_FILETYPE_PEM) != 1) {
 				std::cerr << err_string("SSL_CTX_use_certificate_file");
@@ -238,7 +245,7 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 			break;
 		}
 
-		if (conf.find("key")) {
+		if (conf.count("key")) {
 			if (SSL_CTX_use_RSAPrivateKey_file(ctx, conf["key"].c_str(),
 			SSL_FILETYPE_PEM) != 1) {
 				std::cerr << err_string("SSL_CTX_use_RSAPrivateKey_file");
@@ -256,7 +263,7 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 		SSL_CTX_set_options(ctx,
 		SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
 
-		if (conf.find("verify_locations"))
+		if (conf.count("verify_locations"))
 			if (SSL_CTX_load_verify_locations(ctx, NULL,
 					conf["verify_locations"].c_str()) != 1) {
 				std::cerr << err_string("SSL_CTX_load_verify_locations");
@@ -275,7 +282,7 @@ void client_clean(SSL_CTX *&ctx, EVP_PKEY *&skey) {
 		EVP_PKEY_free(skey);
 }
 
-int connect(SSL_CTX * const ctx, BIO*&web, std::string url) {
+int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 	int ret = 0;
 	SSL *ssl = NULL;
 	std::string host = get_host(url);
@@ -350,31 +357,30 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 		if (connect(ctx, web, req.headers["host"]) != 1)
 			break;
 
-		req_str += req.method + ' ' + req.request_target;
+		req_str += method_str(req.method) + ' ' + req.request_target;
 		if (req.query.size() > 0) {
 			req_str += '?';
-			for (auto it : req.query) {
-				req_str += it.first + '=' + it.second;
-				if (it != req.query.size - 1)
-					req_str += '&';
-			}
+			for (auto it : req.query)
+				req_str += it.first + '=' + it.second + '&';
+			req_str.erase(req_str.end());
 		}
 		req_str += " HTTP/1.1\r\n";
 
 		for (auto it : req.headers)
-			req_str += it.first + ':' + it.second + "\r\ n";
+			req_str += it.first + ':' + it.second + "\r\n";
 
 		if (req.method == POST)
-			req_str += "\r\ n" + req.body;
+			req_str += "\r\n" + req.body;
 
-		if (int len = BIO_puts(web, req_str.c_str()) != req_str.length()) {
+		std::string::size_type len = BIO_puts(web, req_str.c_str());
+		if (len != req_str.length()) {
 			std::cerr << err_string("BIO_puts");
-			std::cerr << "Put  " << len << 'b from ' << req_str.length() << "b"
+			std::cerr << "Put  " << len << "b from " << req_str.length() << "b"
 					<< std::endl;
 			break;
 		}
 
-		int len = 0;
+		len = 0;
 		out = BIO_new(BIO_s_mem());
 		do {
 			char buff[1536] = { };
@@ -404,72 +410,70 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 	return !!ret;
 }
 
-int (const str_map &conf, SSL_CTX *const ctx, const EVP_PKEY * const skey,const std::string &json, int type) {
+int post_doc(str_map &conf, SSL_CTX * const ctx, const EVP_PKEY * const skey,
+		const std::string &json, int type) {
 
-//The headers included in the linked list must not be CRLF-terminated, because libcurl adds CRLF after each header item.
-	struct curl_slist *headers = NULL;
-	CURLcode res;
-	EVP_PKEY* key = NULL;
-	std::string signature;
-	std::string b64_sign;
-
-	free(buf->memory);
-	buf->memory = NULL;
-	buf->size = 0;
-
-	read_key(key, conf["signkey"]);
-
-	sign(body, signature, key);
-	base64_encode(signature, b64_sign);
-
-	headers = curl_slist_append(headers, ("X-Signature: " + b64_sign).c_str());
-
-	std::string clh("Content-Length: ");
-	clh.append(std::to_string(body.length()));
-	headers = curl_slist_append(headers, clh.c_str());
-
-	headers = curl_slist_append(headers,
-			"Content-Type: application/json; charset=utf-8");
-	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-	curl_easy_setopt(curl, CURLOPT_POST, 1L);
-	curl_easy_setopt(curl, CURLOPT_URL, conf["url"].c_str());
-
-	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-	curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, body.length());
-
-	res = curl_easy_perform(curl);
-	if (res != CURLE_OK) {
-		fprintf(stderr, "curl_easy_perform() POST failed: %s\n",
-				curl_easy_strerror(res));
-	}
-	get_info(curl, buf);
-	return res;
+	int ret = 0;
+////The headers included in the linked list must not be CRLF-terminated, because libcurl adds CRLF after each header item.
+//	struct curl_slist *headers = NULL;
+//	CURLcode res;
+//	EVP_PKEY* key = NULL;
+//	std::string signature;
+//	std::string b64_sign;
+//
+//	free(buf->memory);
+//	buf->memory = NULL;
+//	buf->size = 0;
+//
+//	read_key(key, conf["signkey"]);
+//
+//	sign(body, signature, key);
+//	base64_encode(signature, b64_sign);
+//
+//	headers = curl_slist_append(headers, ("X-Signature: " + b64_sign).c_str());
+//
+//	std::string clh("Content-Length: ");
+//	clh.append(std::to_string(body.length()));
+//	headers = curl_slist_append(headers, clh.c_str());
+//
+//	headers = curl_slist_append(headers,
+//			"Content-Type: application/json; charset=utf-8");
+//	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+//
+//	curl_easy_setopt(curl, CURLOPT_POST, 1L);
+//	curl_easy_setopt(curl, CURLOPT_URL, conf["url"].c_str());
+//
+//	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+//	curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, body.length());
+//
+//	res = curl_easy_perform(curl);
+//	if (res != CURLE_OK) {
+//		fprintf(stderr, "curl_easy_perform() POST failed: %s\n",
+//				curl_easy_strerror(res));
+//	}
+//	get_info(curl, buf);
+	return ret;
 }
 
-CURLcode get(CURL * curl, const std::string &doc_id,
-		std::map<std::string, std::string> &conf, memory_struct *buf) {
-	struct curl_slist *headers = NULL;
-	CURLcode res;
+int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
+		std::string &json, int type) {
+	http_request req;
+	http_response res;
+	int ret = 0;
 
-	free(buf->memory);
-	buf->memory = NULL;
-	buf->size = 0;
+	req.method = GET;
+	req.request_target =
+			type == 0 ?
+					"documents/" :
+					"corrections/" + conf["inn"] + "/status/" + doc_id;
+	req.headers["host"] = conf["url"];
 
-	curl_easy_setopt(curl, CURLOPT_POST, 0L);
+	if (perform(ctx, req, res) && res.status_code == 200) {
+		json = res.body;
+		ret = 1;
+	};
 
-	curl_easy_setopt(curl, CURLOPT_URL,
-			(conf["url"] + conf["inn"] + "/status/" + doc_id).c_str());
-	headers = curl_slist_append(headers,
-			"Content-Type: application/json; charset=utf-8");
-	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-	res = curl_easy_perform(curl);
-	if (res != CURLE_OK) {
-		fprintf(stderr, "curl_easy_perform() GET failed: %s\n",
-				curl_easy_strerror(res));
-	}
-	get_info(curl, buf);
-	return res;
+	return ret;
 }
 
 int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
@@ -487,14 +491,12 @@ int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 
 	do {
 		pkey = EVP_PKEY_new();
-		assert(pkey != NULL);
 		if (pkey == NULL) {
 			std::cout << "EVP_PKEY_new failed (1)," << err_string();
 			break;
 		}
 
 		FILE *key_file = fopen(keyfname.c_str(), "r");
-		assert(key_file != NULL);
 		if (key_file == NULL) {
 			std::cout << "EVP_PKEY_new failed (1)," << err_string();
 			break;
@@ -509,7 +511,6 @@ int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 		if (key_type) {
 			rsa = PEM_read_RSA_PUBKEY(key_file, &rsa, NULL, w_pass_phrase);
 			fclose(key_file);
-			assert(rsa != NULL);
 			if (rsa == NULL) {
 				std::cout << "PEM_read_RSAPublicKey failed, " << err_string();
 				break;
@@ -518,7 +519,6 @@ int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 		} else {
 			rsa = PEM_read_RSAPrivateKey(key_file, &rsa, NULL, w_pass_phrase);
 			fclose(key_file);
-			assert(rsa != NULL);
 			if (rsa == NULL) {
 				std::cout << "PEM_read_RSAPrivateKey failed, " << err_string();
 				break;
@@ -526,7 +526,6 @@ int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 			rc = EVP_PKEY_assign_RSA(pkey, RSAPrivateKey_dup(rsa));
 		}
 
-		assert(rc == 1);
 		if (rc != 1) {
 			std::cout << "EVP_PKEY_assign_RSA failed, " << err_string();
 			break;
@@ -550,7 +549,6 @@ int sign(const std::string & msg, std::string & signature,
 	int result = -1;
 
 	if (!pkey) {
-		assert(0);
 		return -1;
 	}
 
@@ -561,35 +559,30 @@ int sign(const std::string & msg, std::string & signature,
 
 	do {
 		ctx = EVP_MD_CTX_create();
-		assert(ctx != NULL);
 		if (ctx == NULL) {
 			std::cout << "EVP_MD_CTX_create failed, " << err_string();
 			break;
 		}
 
 		const EVP_MD* md = EVP_get_digestbyname("SHA256");
-		assert(md != NULL);
 		if (md == NULL) {
 			std::cout << "EVP_get_digestbyname failed, " << err_string();
 			break;
 		}
 
 		int rc = EVP_DigestInit_ex(ctx, md, NULL);
-		assert(rc == 1);
 		if (rc != 1) {
 			std::cout << "EVP_DigestInit_ex failed, " << err_string();
 			break;
 		}
 
 		rc = EVP_DigestSignInit(ctx, NULL, md, NULL, pkey);
-		assert(rc == 1);
 		if (rc != 1) {
 			std::cout << "EVP_DigestSignInit failed, " << err_string();
 			break;
 		}
 
 		rc = EVP_DigestSignUpdate(ctx, msg.c_str(), msg.length());
-		assert(rc == 1);
 		if (rc != 1) {
 			std::cout << "EVP_DigestSignUpdate failed, " << err_string();
 			break;
@@ -597,20 +590,17 @@ int sign(const std::string & msg, std::string & signature,
 
 		size_t req = 0;
 		rc = EVP_DigestSignFinal(ctx, NULL, &req);
-		assert(rc == 1);
 		if (rc != 1) {
 			std::cout << "EVP_DigestSignFinal failed (1), " << err_string();
 			break;
 		}
 
-		assert(req > 0);
 		if (!(req > 0)) {
 			std::cout << "EVP_DigestSignFinal failed (2), " << err_string();
 			break;
 		}
 
 		signature_buff = new unsigned char[req];
-		assert(signature_buff != NULL);
 		if (signature_buff == NULL) {
 			std::cout << "new failed, " << err_string();
 			break;
@@ -618,14 +608,12 @@ int sign(const std::string & msg, std::string & signature,
 
 		slen = req;
 		rc = EVP_DigestSignFinal(ctx, signature_buff, &slen);
-		assert(rc == 1);
 		if (rc != 1) {
 			std::cout << "EVP_DigestsignFinal failed (3), return code " << rc
 					<< ", " << err_string();
 			break;
 		}
 
-		assert(req == slen);
 		if (rc != 1) {
 			std::cout
 					<< "EVP_DigestsignFinal failed, mismatched signature sizes "
@@ -739,3 +727,38 @@ std::string err_string(std::string label) {
 				+ ERR_error_string(err, NULL) + "\n";
 }
 
+std::string get_host(const std::string &url) {
+	std::string::size_type protocol = url.find("://");
+	std::string::size_type port = url.find(':', protocol + 1);
+	std::string::size_type target = url.find('/', port + 1);
+
+	return url.substr(port == std::string::npos ? target : port);
+}
+std::string get_port(const std::string &url) {
+	std::string::size_type protocol = url.find("://");
+	std::string::size_type port = url.find(':', protocol + 1);
+	std::string::size_type target = url.find('/', port + 1);
+
+	return url.substr(port + 1, target);
+}
+
+std::string get_target(const std::string &url) {
+	std::string::size_type protocol = url.find("://");
+	std::string::size_type port = url.find(':', protocol + 1);
+	std::string::size_type target = url.find('/', port + 1);
+
+	return url.substr(target);
+}
+
+std::string method_str(const request_methods m) {
+	switch (m) {
+	case POST:
+		return "POST";
+		break;
+	case GET:
+		return "GET";
+		break;
+	default:
+		return "FALSE";
+	}
+}

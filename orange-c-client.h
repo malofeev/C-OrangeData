@@ -17,6 +17,9 @@ enum request_methods {
 	GET, POST
 };
 
+std::string method_str(const request_methods m);
+
+
 typedef std::map<std::string, std::string> str_map;
 struct http_request {
 	request_methods method;
@@ -52,10 +55,10 @@ std::string get_target(const std::string &url);
 int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url);
 int perform(SSL_CTX * const ctx, http_request &req, http_response &res);
 
-int post_doc(const str_map &conf, SSL_CTX * const ctx,
-		const EVP_PKEY * const skey, const std::string &json, int type = 0);
-int get_status(const str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
-		int type = 0);
+int post_doc(str_map &conf, SSL_CTX * const ctx, const EVP_PKEY * const skey,
+		const std::string &json, int type = 0);
+int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
+		std::string &json, int type = 0);
 
 int read_key(EVP_PKEY*& key, const std::string& keyfname,
 		const std::string & pass_phrase = "",
