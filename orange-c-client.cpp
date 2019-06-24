@@ -160,6 +160,7 @@ int verify_callback(int preverify, X509_STORE_CTX* x509_ctx) {
 void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 		EVP_PKEY *&skey) {
 	int ret = 1;
+	char * w_pass_phrase = NULL;
 
 	do {
 
@@ -227,22 +228,9 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 		}
 
 		if (conf.count("pass_phrase")) {
-			char * w_pass_phrase = new char[conf["pass_phrase"].length() + 1];
+			w_pass_phrase = new char[conf["pass_phrase"].length() + 1];
 			std::strcpy(w_pass_phrase, conf["pass_phrase"].c_str());
 			SSL_CTX_set_default_passwd_cb_userdata(ctx, w_pass_phrase);
-			delete[] w_pass_phrase;
-		}
-
-		if (conf.count("certificate")) {
-			if (SSL_CTX_use_certificate_file(ctx, conf["certificate"].c_str(),
-			SSL_FILETYPE_PEM) != 1) {
-				std::cerr << err_string("SSL_CTX_use_certificate_file");
-				break;
-			}
-		} else {
-			std::cout << "Configuration file doesn't have certificate line"
-					<< std::endl;
-			break;
 		}
 
 		if (conf.count("key")) {
@@ -253,6 +241,18 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 			}
 		} else {
 			std::cout << "Configuration file doesn't have key line"
+					<< std::endl;
+			break;
+		}
+
+		if (conf.count("certificate")) {
+			if (SSL_CTX_use_certificate_file(ctx, conf["certificate"].c_str(),
+			SSL_FILETYPE_PEM) != 1) {
+				std::cerr << err_string("SSL_CTX_use_certificate_file");
+				break;
+			}
+		} else {
+			std::cout << "Configuration file doesn't have certificate line"
 					<< std::endl;
 			break;
 		}
@@ -271,6 +271,10 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 			}
 		ret = 0;
 	} while (0);
+
+	if (w_pass_phrase)
+		delete[] w_pass_phrase;
+
 	if (!!ret)
 		exit(1);
 }
@@ -479,7 +483,7 @@ int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
 int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 		const std::string &pass_phrase,
 		int key_type /*0 - private, 1 - public*/) {
-	int result = -1;
+	int result = 0;
 
 	if (pkey != NULL) {
 		EVP_PKEY_free(pkey);
@@ -530,7 +534,7 @@ int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 			std::cout << "EVP_PKEY_assign_RSA failed, " << err_string();
 			break;
 		}
-		result = 0;
+		result = 1;
 
 	} while (0);
 
