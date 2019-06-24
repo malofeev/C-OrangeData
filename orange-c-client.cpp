@@ -169,12 +169,13 @@ CURLcode post(CURL * curl, const std::string &body,
 				curl_easy_strerror(res));
 	}
 	get_info(curl, buf);
+	curl_slist_free_all(headers);
 	return res;
 }
 
 CURLcode get(CURL * curl, const std::string &doc_id,
 		std::map<std::string, std::string> &conf, memory_struct *buf,const int type) {
-	struct curl_slist *headers = NULL;
+
 	CURLcode res;
 
 	free(buf->memory);
@@ -185,9 +186,9 @@ CURLcode get(CURL * curl, const std::string &doc_id,
 
 	curl_easy_setopt(curl, CURLOPT_URL,
 			(conf["url"] +(type?"corrections/" : "documents/")+ conf["inn"] + "/status/" + doc_id).c_str());
-	headers = curl_slist_append(headers,
-			"Content-Type: application/json; charset=utf-8");
-	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, NULL);
+
 	res = curl_easy_perform(curl);
 	if (res != CURLE_OK) {
 		fprintf(stderr, "curl_easy_perform() GET failed: %s\n",
