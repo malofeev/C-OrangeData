@@ -52,6 +52,8 @@ std::string get_host(const std::string &url);
 std::string get_port(const std::string &url);
 std::string get_target(const std::string &url);
 
+int parse_http_message(const std::string &mes, http_response &res);
+
 int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url);
 int perform(SSL_CTX * const ctx, http_request &req, http_response &res);
 

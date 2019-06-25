@@ -5,13 +5,50 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <sstream>
+#include <vector>
 
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
 
 #include "orange-c-client.h"
+
+std::string escaped(const std::string& input) {
+	std::string output;
+	output.reserve(input.size());
+	for (const char c : input) {
+		switch (c) {
+		case '\a':
+			output += "\\a";
+			break;
+		case '\b':
+			output += "\\b";
+			break;
+		case '\f':
+			output += "\\f";
+			break;
+		case '\n':
+			output += "\\n\n";
+			break;
+		case '\r':
+			output += "\\r";
+			break;
+		case '\t':
+			output += "\\t";
+			break;
+		case '\v':
+			output += "\\v";
+			break;
+		default:
+			output += c;
+			break;
+		}
+	}
+
+	return output;
+}
 
 void print_cn_name(const char* label, X509_NAME* const name) {
 	int idx = -1, success = 0;
@@ -37,7 +74,7 @@ void print_cn_name(const char* label, X509_NAME* const name) {
 		if (!utf8 || !(length > 0))
 			break;
 
-		std::cout <<"  "<< label << ": " << utf8<< std::endl;
+		std::cout << "  " << label << ": " << utf8 << std::endl;
 		success = 1;
 
 	} while (0);
@@ -46,7 +83,7 @@ void print_cn_name(const char* label, X509_NAME* const name) {
 		OPENSSL_free(utf8);
 
 	if (!success)
-		std::cout<<"  "<< label << ": <not available>" << std::endl;
+		std::cout << "  " << label << ": <not available>" << std::endl;
 	;
 }
 
@@ -92,7 +129,7 @@ void print_san_name(const char* label, X509* const cert) {
 				/* Another policy would be to fails since it probably */
 				/* indicates the client is under attack.              */
 				if (utf8 && len1 && len2 && (len1 == len2)) {
-					std::cout <<"  "<< label << ": " << utf8 << std::endl;
+					std::cout << "  " << label << ": " << utf8 << std::endl;
 					success = 1;
 				}
 
@@ -114,7 +151,7 @@ void print_san_name(const char* label, X509* const cert) {
 		OPENSSL_free(utf8);
 
 	if (!success)
-		std::cout <<"  "<< label << ": <not available>" << std::endl;
+		std::cout << "  " << label << ": <not available>" << std::endl;
 }
 int verify_callback(int preverify, X509_STORE_CTX* x509_ctx) {
 
@@ -352,6 +389,46 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 	return !!ret;
 }
 
+int parse_http_message(const std::string &mes, http_response &res) {
+	int ret = 0;
+
+	std::istringstream in(mes);
+	std::string line;
+	do {
+		{
+			std::getline(in, line);
+			std::istringstream iss(line);
+			std::vector<std::string> tokens {
+					std::istream_iterator<std::string> { iss },
+					std::istream_iterator<std::string> { } };
+			if (tokens.size() != 3) {
+				std::cout << "Bad Status line:" << line << std::endl;
+				break;
+			}
+			res.status_code = std::stoi(tokens[1]);
+			res.reason_phrase = tokens[2];
+		}
+
+		std::getline(in, line);
+		while (line != "\r") {
+			auto pos = line.find(':');
+			if (pos != std::string::npos)
+				res.headers[trim(line.substr(0, pos))] = trim(
+						line.substr(pos + 1, line.size()));
+			else {
+				std::cout << "Bad header line:" << line << std::endl;
+				break;
+			}
+			std::getline(in, line);
+		}
+		if (line != "\r")
+			break;
+
+		ret = 1;
+	} while (0);
+	return !!ret;
+}
+
 int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 	int ret = 0;
 	BIO *web = NULL, *out = NULL;
@@ -371,14 +448,19 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 		}
 		req_str += " HTTP/1.1\r\n";
 
+		if (req.headers.count("Connection") == 0)
+			req.headers["Connection"] = "close";
+
 		for (auto it : req.headers)
 			req_str += it.first + ": " + it.second + "\r\n";
 
-		if (req.method == POST)
-			req_str += "\r\n" + req.body;
+		req_str += "\r\n";
 
-		std::cout <<"req:" <<req_str << '\n';
+		if (req.method == POST)
+			req_str += req.body;
+
 		std::string::size_type len = BIO_puts(web, req_str.c_str());
+		ERR_get_error();
 		if (len != req_str.length()) {
 			std::cerr << err_string("BIO_puts");
 			std::cerr << "Put  " << len << "b from " << req_str.length() << "b"
@@ -388,11 +470,10 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 
 		len = 0;
 		out = BIO_new(BIO_s_mem());
+
 		do {
 			char buff[1536] = { };
-
 			len = BIO_read(web, buff, sizeof(buff));
-
 			if (len < 0)
 				std::cerr << err_string("BIO_read");
 			if (len > 0)
@@ -402,15 +483,18 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 		BIO_flush(out);
 		BIO_get_mem_ptr(out, &bufferPtr);
 
-		if (len > 0)
+		if ((*bufferPtr).length > 0)
 			res_str.assign((*bufferPtr).data, (*bufferPtr).length);
 		else
 			break;
 
-		ret = 1;
+		if (parse_http_message(res_str, res))
+			ret = 1;
 	} while (0);
 
-	std::cout << "res:"<<res_str << '\n';
+	std::cout << "req start:\n" << escaped(req_str) << "req fin\n";
+	std::cout << "res start:\n" << escaped(res_str) << "res fin\n";
+
 	if (out != NULL)
 		BIO_free_all(out);
 
@@ -773,8 +857,8 @@ std::string get_target(const std::string &url) {
 	return target == std::string::npos ?
 			"" :
 			url.substr(target,
-					url.length() - target - (url.at(url.length() - 1) == '/' ?
-							1 : 0));
+					url.length() - target
+							- (url.at(url.length() - 1) == '/' ? 1 : 0));
 }
 std::string method_str(const request_methods m) {
 	switch (m) {
