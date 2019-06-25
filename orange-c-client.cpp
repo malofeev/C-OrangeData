@@ -1,6 +1,7 @@
 /*
  * orange-c-client.cpp Created on: Jun 3, 2019 Author: NullinV
  */
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -36,7 +37,7 @@ void print_cn_name(const char* label, X509_NAME* const name) {
 		if (!utf8 || !(length > 0))
 			break;
 
-		std::cout << label << ": " << utf8;
+		std::cout <<"  "<< label << ": " << utf8<< std::endl;
 		success = 1;
 
 	} while (0);
@@ -45,7 +46,7 @@ void print_cn_name(const char* label, X509_NAME* const name) {
 		OPENSSL_free(utf8);
 
 	if (!success)
-		std::cout << label << ": <not available>" << std::endl;
+		std::cout<<"  "<< label << ": <not available>" << std::endl;
 	;
 }
 
@@ -91,7 +92,7 @@ void print_san_name(const char* label, X509* const cert) {
 				/* Another policy would be to fails since it probably */
 				/* indicates the client is under attack.              */
 				if (utf8 && len1 && len2 && (len1 == len2)) {
-					std::cout << label << ": " << utf8 << std::endl;
+					std::cout <<"  "<< label << ": " << utf8 << std::endl;
 					success = 1;
 				}
 
@@ -113,7 +114,7 @@ void print_san_name(const char* label, X509* const cert) {
 		OPENSSL_free(utf8);
 
 	if (!success)
-		std::cout << label << ": <not available>" << std::endl;
+		std::cout <<"  "<< label << ": <not available>" << std::endl;
 }
 int verify_callback(int preverify, X509_STORE_CTX* x509_ctx) {
 
@@ -299,7 +300,7 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 			break;
 		}
 
-		if (BIO_set_conn_hostname(web, (host+ ":" + port).c_str()) != 1) {
+		if (BIO_set_conn_hostname(web, (host+port).c_str()) != 1) {
 			std::cerr << err_string("BIO_set_conn_hostname");
 			break;
 		}
@@ -341,7 +342,7 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 			break;
 		}
 
-		if (BIO_do_handshake(web) != 1) {
+		if (SSL_get_verify_result(ssl) != X509_V_OK) {
 			std::cerr << err_string("SSL_get_verify_result(ssl)");
 			break;
 		}
@@ -358,7 +359,7 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 	std::string req_str, res_str;
 
 	do {
-		if (connect(ctx, web, req.headers["host"]) != 1)
+		if (connect(ctx, web, req.headers["Host"]) != 1)
 			break;
 
 		req_str += method_str(req.method) + ' ' + req.request_target;
@@ -371,11 +372,12 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 		req_str += " HTTP/1.1\r\n";
 
 		for (auto it : req.headers)
-			req_str += it.first + ':' + it.second + "\r\n";
+			req_str += it.first + ": " + it.second + "\r\n";
 
 		if (req.method == POST)
 			req_str += "\r\n" + req.body;
 
+		std::cout <<"req:" <<req_str << '\n';
 		std::string::size_type len = BIO_puts(web, req_str.c_str());
 		if (len != req_str.length()) {
 			std::cerr << err_string("BIO_puts");
@@ -391,6 +393,8 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 
 			len = BIO_read(web, buff, sizeof(buff));
 
+			if (len < 0)
+				std::cerr << err_string("BIO_read");
 			if (len > 0)
 				BIO_write(out, buff, len);
 		} while (len > 0 || BIO_should_retry(web));
@@ -406,6 +410,7 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 		ret = 1;
 	} while (0);
 
+	std::cout << "res:"<<res_str << '\n';
 	if (out != NULL)
 		BIO_free_all(out);
 
@@ -466,11 +471,10 @@ int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
 	int ret = 0;
 
 	req.method = GET;
-	req.request_target =
-			type == 0 ?
-					"documents/" :
-					"corrections/" + conf["inn"] + "/status/" + doc_id;
-	req.headers["host"] = conf["url"];
+	req.request_target = get_target(conf["url"])
+			+ (type == 0 ? "/documents/" : "/corrections/") + conf["inn"]
+			+ "/status/" + doc_id;
+	req.headers["Host"] = get_host(conf["url"]) + get_port(conf["url"]);
 
 	if (perform(ctx, req, res) && res.status_code == 200) {
 		json = res.body;
@@ -732,28 +736,46 @@ std::string err_string(std::string label) {
 }
 
 std::string get_host(const std::string &url) {
-	std::string::size_type protocol = url.find("://");
-	std::string::size_type port = url.find(':', protocol + 1);
-	std::string::size_type target = url.find('/', port + 1);
+	std::string::size_type scheme_pos = url.find("://");
+	if (scheme_pos == std::string::npos)
+		scheme_pos = -1;
+	else
+		scheme_pos += 2;
+	std::string::size_type target = url.find('/', scheme_pos + 1); //check ""
+	std::string::size_type port = url.find(':', scheme_pos + 1);
 
-	return url.substr(port == std::string::npos ? target : port);
+	return url.substr(scheme_pos + 1, std::min(port, target) - scheme_pos - 1);
 }
-std::string get_port(const std::string &url) {
-	std::string::size_type protocol = url.find("://");
-	std::string::size_type port = url.find(':', protocol + 1);
-	std::string::size_type target = url.find('/', port + 1);
 
-	return url.substr(port + 1, target);
+std::string get_port(const std::string &url) {
+	std::string::size_type scheme_pos = url.find("://");
+	if (scheme_pos == std::string::npos)
+		scheme_pos = -1;
+	else
+		scheme_pos += 2;
+	std::string::size_type port = url.find(':', scheme_pos + 1);
+	if (port == std::string::npos)
+		return "";
+	std::string::size_type target = url.find('/', scheme_pos + 1);
+	if (target == std::string::npos)
+		target = url.length();
+	return url.substr(port, target - port);
 }
 
 std::string get_target(const std::string &url) {
-	std::string::size_type protocol = url.find("://");
-	std::string::size_type port = url.find(':', protocol + 1);
-	std::string::size_type target = url.find('/', port + 1);
+	std::string::size_type scheme_pos = url.find("://");
+	if (scheme_pos == std::string::npos)
+		scheme_pos = -1;
+	else
+		scheme_pos += 2;
+	std::string::size_type target = url.find('/', scheme_pos + 1);
 
-	return url.substr(target);
+	return target == std::string::npos ?
+			"" :
+			url.substr(target,
+					url.length() - target - (url.at(url.length() - 1) == '/' ?
+							1 : 0));
 }
-
 std::string method_str(const request_methods m) {
 	switch (m) {
 	case POST:
