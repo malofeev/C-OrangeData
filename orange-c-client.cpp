@@ -403,17 +403,17 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 int read_chunked_body(std::istream &in, std::string &body) {
 
 	int ret = 0;
-	int len = -1;
+	std::string::size_type len = 0;
 	std::string size_line, data_line;
 	do {
-		len = -1;
+
 		if (!std::getline(in, size_line)) {
 			std::cout << "Unexpected end of stream" << std::endl;
 			break;
 		};
 
 		try {
-			len = std::stoi(size_line);
+			len = std::stoi(size_line, 0, 16);
 		} catch (std::invalid_argument &ex) {
 			std::cout << "Bad chunk size line: " << size_line << std::endl;
 			break;
@@ -425,17 +425,14 @@ int read_chunked_body(std::istream &in, std::string &body) {
 			std::cout << "Unexpected end of stream" << std::endl;
 			break;
 		}
-
+		data_line.pop_back(); // remove trailing \r
 		body += data_line;
-		if (len == 0 && data_line != "\r") {
-			std::cout << "Bad chunked body " << std::endl;
+		if (len != data_line.length()) {
+			std::cout << "Bad chunk length " << std::endl;
 			break;
 		}
-
-	} while (len != 0);
-
-	if (len != -1)
 		ret = 1;
+	} while (len != 0);
 
 	return !!ret;
 }
@@ -483,11 +480,11 @@ int parse_http_message(const std::string &mes, http_response &res) {
 				res.headers[trim(line.substr(0, pos))] = trim(
 						line.substr(pos + 1, line.size()));
 			else {
-				std::cout << "Bad header line:" << line << std::endl;
+				std::cerr << "Bad header line:" << line << std::endl;
 				break;
 			}
 			if (!std::getline(in, line)) {
-				std::cout << "Unexpected end of stream" << std::endl;
+				std::cerr << "Unexpected end of stream" << std::endl;
 				break;
 			};
 		}
@@ -498,8 +495,20 @@ int parse_http_message(const std::string &mes, http_response &res) {
 			if (!read_chunked_body(in, res.body))
 				break;
 		} else if (res.headers.count("Transfer-Encoding") == 0
-				&& res.headers.count("Content-Length") == 1) { //content-type body
-		} else { //check if there is illegal body
+				&& res.headers.count("Content-Length") == 1) {
+			if (res.headers["Content-Length"] != "0") {
+				std::getline(in, res.body);
+				if (std::to_string(res.body.length())
+						!= res.headers["Content-Length"]) {
+					std::cerr << "Bad body length" << std::endl;
+					break;
+				}
+			}
+		} else {
+			std::cerr
+					<< "Content-Length combined with Transfer-Encoding or both are absent"
+					<< std::endl;
+			break;
 		}
 
 		ret = 1;
@@ -513,6 +522,8 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 	BIO *web = NULL, *out = NULL;
 	BUF_MEM *bufferPtr;
 	std::string req_str, res_str;
+
+	res = {};
 
 	do {
 		if (connect(ctx, web, req.headers["Host"]) != 1)
@@ -605,7 +616,7 @@ int post_doc(str_map &conf, SSL_CTX * const ctx, EVP_PKEY * const skey,
 
 	if (perform(ctx, req, res)) {
 		if (res.status_code == 400)
-			std::cout << res.body; //errors array
+			std::cout << res.body << std::endl; //errors array
 		ret = res.status_code;
 	};
 
@@ -630,7 +641,6 @@ int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
 	while (elapsed < 180000 && res.status_code != 200) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(1001));
 		elapsed += 1001;
-		res = {};
 		perform(ctx, req, res);
 	}
 	if (res.status_code == 200) {
