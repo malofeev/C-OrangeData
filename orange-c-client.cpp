@@ -7,6 +7,7 @@
 #include <iostream>
 #include <iterator>
 #include <sstream>
+#include <stdexcept>
 #include <vector>
 
 #include <openssl/err.h>
@@ -405,7 +406,18 @@ int parse_http_message(const std::string &mes, http_response &res) {
 				std::cout << "Bad Status line:" << line << std::endl;
 				break;
 			}
-			res.status_code = std::stoi(tokens[1]);
+
+			try {
+				res.status_code = std::stoi(tokens[1]);
+			} catch (std::invalid_argument &ex) {
+				std::cout << "Bad Status line:" << line << std::endl;
+				break;
+			} catch (std::out_of_range &ex) {
+
+				std::cout << "Bad Status line:" << line << std::endl;
+				break;
+			};
+
 			res.reason_phrase = tokens[2];
 		}
 
@@ -424,6 +436,8 @@ int parse_http_message(const std::string &mes, http_response &res) {
 		if (line != "\r")
 			break;
 
+//chunked body
+		//content-type body
 		ret = 1;
 	} while (0);
 	return !!ret;
