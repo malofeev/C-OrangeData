@@ -67,7 +67,8 @@ int main(int argc, char ** argv) {
 	if (body.length() > max_msg_len) {
 		std::cout << "Max message length " << max_msg_len << " is exceeded\n";
 	}
-	get_status(conf, ctx, "newId1", rstr);
+	post_doc(conf, ctx, skey, body);
+	get_status(conf, ctx, doc_id, rstr);
 	response = json_loads(rstr.c_str(), 0, j_error);
 	std::cout<<"The end\n"<<json_dumps(response, JSON_COMPACT)<<"\n =========";
 	/*if (post(curl, body, conf, &buf) == CURLE_OK) {

@@ -426,7 +426,7 @@ int read_chunked_body(std::istream &in, std::string &body) {
 
 	if (len != -1)
 		ret = 1;
-	std::cout <<"***************\n"<< body<<"******************\n";
+
 	return !!ret;
 }
 
@@ -559,9 +559,6 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 			ret = 1;
 	} while (0);
 
-	std::cout << "req start:\n" << escaped(req_str) << "req fin\n";
-	std::cout << "res start:\n" << escaped(res_str) << "res fin\n";
-
 	if (out != NULL)
 		BIO_free_all(out);
 
@@ -570,49 +567,29 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 	return !!ret;
 }
 
-int post_doc(str_map &conf, SSL_CTX * const ctx, const EVP_PKEY * const skey,
+int post_doc(str_map &conf, SSL_CTX * const ctx, EVP_PKEY * const skey,
 		const std::string &json, int type) {
 
-	int ret = 0;
-////The headers included in the linked list must not be CRLF-terminated, because libcurl adds CRLF after each header item.
-//	struct curl_slist *headers = NULL;
-//	CURLcode res;
-//	EVP_PKEY* key = NULL;
-//	std::string signature;
-//	std::string b64_sign;
-//
-//	free(buf->memory);
-//	buf->memory = NULL;
-//	buf->size = 0;
-//
-//	read_key(key, conf["signkey"]);
-//
-//	sign(body, signature, key);
-//	base64_encode(signature, b64_sign);
-//
-//	headers = curl_slist_append(headers, ("X-Signature: " + b64_sign).c_str());
-//
-//	std::string clh("Content-Length: ");
-//	clh.append(std::to_string(body.length()));
-//	headers = curl_slist_append(headers, clh.c_str());
-//
-//	headers = curl_slist_append(headers,
-//			"Content-Type: application/json; charset=utf-8");
-//	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-//
-//	curl_easy_setopt(curl, CURLOPT_POST, 1L);
-//	curl_easy_setopt(curl, CURLOPT_URL, conf["url"].c_str());
-//
-//	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-//	curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, body.length());
-//
-//	res = curl_easy_perform(curl);
-//	if (res != CURLE_OK) {
-//		fprintf(stderr, "curl_easy_perform() POST failed: %s\n",
-//				curl_easy_strerror(res));
-//	}
-//	get_info(curl, buf);
-	return ret;
+	http_request req;
+	http_response res;
+	std::string signature;
+	std::string b64_sign;
+
+	req.method = POST;
+	req.request_target = get_target(conf["url"])
+			+ (type == 0 ? "/documents/" : "/corrections/");
+	req.headers["Host"] = get_host(conf["url"]) + get_port(conf["url"]);
+
+	sign(json, signature, skey);
+	base64_encode(signature, b64_sign);
+	req.headers["X-Signature"] = b64_sign;
+	req.headers["Content-Length"] = std::to_string(json.length());
+
+	req.headers["Content-Type"] ="application/json; charset=utf-8";
+
+	req.body = json;
+
+	return perform(ctx, req, res);
 }
 
 int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
