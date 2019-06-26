@@ -1,35 +1,30 @@
 /*
  * orange-c-example.cpp Created on: Jun 12, 2019 Author: NullinV
  */
-#include <chrono>
+#include <cstring>
 #include <ctime>
 #include <iostream>
-#include <thread>
 
 #include "orange-c-client.h"
 
 int main(int argc, char ** argv) {
 
 	SSL_CTX* ctx = NULL;
-	BIO *web = NULL;
 	EVP_PKEY * skey = NULL;
 
 	int ret = -1;
-	long responce_code = -1;
 	std::string doc_id, rstr;
 
 	str_map conf;
 
 	json_t *content, *positions, *line, *checkClose, *payments, *p_line,
-			*request, *response;
-	json_error_t * j_error = NULL;
+			*request;
+
 	std::string ofdName, processedAt;
 
 	client_init(argc, argv, conf, ctx, skey);
 
 	doc_id = std::to_string(std::time(0));
-
-	post_doc(conf, ctx, skey, ""); //Error array example
 
 	request = json_pack("{ssss}", "Id", doc_id.c_str(), "INN",
 			conf["inn"].c_str());
@@ -67,36 +62,9 @@ int main(int argc, char ** argv) {
 	if (body.length() > max_msg_len) {
 		std::cout << "Max message length " << max_msg_len << " is exceeded\n";
 	}
-	post_doc(conf, ctx, skey, body);
-	get_status(conf, ctx, doc_id, rstr);
-	response = json_loads(rstr.c_str(), 0, j_error);
-	std::cout<<"The end\n"<<json_dumps(response, JSON_COMPACT)<<"\n =========";
-	/*if (post(curl, body, conf, &buf) == CURLE_OK) {
-	 curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responce_code);
-	 if (responce_code == 201) {
-	 long elapsed = 0;
-	 do {
-	 if (get(curl, doc_id, conf, &buf) == CURLE_OK) {
-	 curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE,
-	 &responce_code);
-	 if (responce_code == 200) {
-	 response = json_loads(buf.memory, 0, j_error);
-	 ofdName = json_string_value(
-	 json_object_get(response, "ofdName"));
-	 processedAt = json_string_value(
-	 json_object_get(response, "processedAt"));
-	 std::cout << "Document processed by " << ofdName
-	 << " at " << processedAt << std::endl;
-	 ret = 0;
-	 break;
-	 }
-	 }
-	 std::this_thread::sleep_for(std::chrono::milliseconds(1001));
-	 elapsed += 1001;
-	 if (elapsed > 180000)
-	 break;
-	 } while (1);
-	 }}*/
+	post_doc(conf, ctx, skey, ""); //Error array example
+	if (post_doc(conf, ctx, skey, body) == 201)
+		ret = !get_status(conf, ctx, doc_id, rstr);
 
 	client_clean(ctx, skey);
 

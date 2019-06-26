@@ -3,11 +3,13 @@
  */
 #include <algorithm>
 #include <cstring>
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 #include <openssl/err.h>
@@ -156,24 +158,25 @@ void print_san_name(const char* label, X509* const cert) {
 }
 int verify_callback(int preverify, X509_STORE_CTX* x509_ctx) {
 
-	int depth = X509_STORE_CTX_get_error_depth(x509_ctx);
 	int err = X509_STORE_CTX_get_error(x509_ctx);
 
+#if defined(NDEBUG)
+	int depth = X509_STORE_CTX_get_error_depth(x509_ctx);
 	X509* cert = X509_STORE_CTX_get_current_cert(x509_ctx);
 	X509_NAME* iname = cert ? X509_get_issuer_name(cert) : NULL;
 	X509_NAME* sname = cert ? X509_get_subject_name(cert) : NULL;
 
-	fprintf(stdout, "verify_callback (depth=%d)(preverify=%d)\n", depth,
-			preverify);
+
+	std::cout << "verify_callback (depth=" << depth << ")(preverify="
+			<< preverify << ")" << std::endl;
 
 	print_cn_name("Issuer (cn)", iname);
-
 	print_cn_name("Subject (cn)", sname);
 
 	if (depth == 0) {
 		print_san_name("Subject (san)", cert);
 	}
-
+#endif
 	if (preverify == 0) {
 		if (err == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY)
 			std::cout
@@ -215,13 +218,19 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 					<< std::endl;
 			break;
 		}
+
+#if defined(NDEBUG)
 		std::cout << "Configuration file:" << argv[1] << std::endl;
+#endif
+
 		while (getline(cfg_file, line)) {
 			auto pos = line.find('=');
 			if (pos != std::string::npos)
+#if defined(NDEBUG)
 				std::cout << line << std::endl;
-			conf[trim(line.substr(0, pos))] = trim(
-					line.substr(pos + 1, line.size()));
+#endif
+				conf[trim(line.substr(0, pos))] = trim(
+						line.substr(pos + 1, line.size()));
 		}
 		std::cout << std::endl;
 
@@ -387,6 +396,7 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 
 		ret = 1;
 	} while (0);
+
 	return !!ret;
 }
 
@@ -436,13 +446,13 @@ int parse_http_message(const std::string &mes, http_response &res) {
 	std::istringstream in(mes);
 	std::string line;
 	do {
-		{
+		{ //Status-line parsing block
 			std::getline(in, line);
 			std::istringstream iss(line);
 			std::vector<std::string> tokens {
 					std::istream_iterator<std::string> { iss },
 					std::istream_iterator<std::string> { } };
-			if (tokens.size() != 3) {
+			if (tokens.size() < 2) {
 				std::cout << "Bad Status line:" << line << std::endl;
 				break;
 			}
@@ -458,9 +468,11 @@ int parse_http_message(const std::string &mes, http_response &res) {
 				break;
 			};
 
-			res.reason_phrase = tokens[2];
-		}
+			for (auto it = tokens.begin() + 2; it < tokens.end(); it++)
+				res.reason_phrase += ' ' + *it;
 
+			std::cout << res.status_code << ' ' << res.reason_phrase << '\n';
+		}
 		if (!std::getline(in, line)) {
 			std::cout << "Unexpected end of stream" << std::endl;
 			break;
@@ -570,6 +582,8 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 int post_doc(str_map &conf, SSL_CTX * const ctx, EVP_PKEY * const skey,
 		const std::string &json, int type) {
 
+	int ret = 0;
+
 	http_request req;
 	http_response res;
 	std::string signature;
@@ -585,11 +599,17 @@ int post_doc(str_map &conf, SSL_CTX * const ctx, EVP_PKEY * const skey,
 	req.headers["X-Signature"] = b64_sign;
 	req.headers["Content-Length"] = std::to_string(json.length());
 
-	req.headers["Content-Type"] ="application/json; charset=utf-8";
+	req.headers["Content-Type"] = "application/json; charset=utf-8";
 
 	req.body = json;
 
-	return perform(ctx, req, res);
+	if (perform(ctx, req, res)) {
+		if (res.status_code == 400)
+			std::cout << res.body; //errors array
+		ret = res.status_code;
+	};
+
+	return ret;
 }
 
 int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
@@ -604,7 +624,26 @@ int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
 			+ "/status/" + doc_id;
 	req.headers["Host"] = get_host(conf["url"]) + get_port(conf["url"]);
 
-	if (perform(ctx, req, res) && res.status_code == 200) {
+	long elapsed = 0;
+
+	perform(ctx, req, res);
+	while (elapsed < 180000 && res.status_code != 200) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(1001));
+		elapsed += 1001;
+		res = {};
+		perform(ctx, req, res);
+	}
+	if (res.status_code == 200) {
+
+		json_error_t * j_error = NULL;
+		json_t *response = json_loads(res.body.c_str(), 0, j_error);
+		std::string ofdName = json_string_value(
+				json_object_get(response, "ofdName"));
+		std::string processedAt = json_string_value(
+				json_object_get(response, "processedAt"));
+		std::cout << "Document processed by " << ofdName << " at "
+				<< processedAt << std::endl;
+
 		json = res.body;
 		ret = 1;
 	};
