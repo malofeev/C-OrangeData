@@ -390,6 +390,46 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 	return !!ret;
 }
 
+int read_chunked_body(std::istream &in, std::string &body) {
+
+	int ret = 0;
+	int len = -1;
+	std::string size_line, data_line;
+	do {
+		len = -1;
+		if (!std::getline(in, size_line)) {
+			std::cout << "Unexpected end of stream" << std::endl;
+			break;
+		};
+
+		try {
+			len = std::stoi(size_line);
+		} catch (std::invalid_argument &ex) {
+			std::cout << "Bad chunk size line: " << size_line << std::endl;
+			break;
+		} catch (std::out_of_range &ex) {
+			std::cout << "Bad chunk size line: " << size_line << std::endl;
+			break;
+		}
+		if (!std::getline(in, data_line)) {
+			std::cout << "Unexpected end of stream" << std::endl;
+			break;
+		}
+
+		body += data_line;
+		if (len == 0 && data_line != "\r") {
+			std::cout << "Bad chunked body " << std::endl;
+			break;
+		}
+
+	} while (len != 0);
+
+	if (len != -1)
+		ret = 1;
+	std::cout <<"***************\n"<< body<<"******************\n";
+	return !!ret;
+}
+
 int parse_http_message(const std::string &mes, http_response &res) {
 	int ret = 0;
 
@@ -421,7 +461,10 @@ int parse_http_message(const std::string &mes, http_response &res) {
 			res.reason_phrase = tokens[2];
 		}
 
-		std::getline(in, line);
+		if (!std::getline(in, line)) {
+			std::cout << "Unexpected end of stream" << std::endl;
+			break;
+		};
 		while (line != "\r") {
 			auto pos = line.find(':');
 			if (pos != std::string::npos)
@@ -431,15 +474,25 @@ int parse_http_message(const std::string &mes, http_response &res) {
 				std::cout << "Bad header line:" << line << std::endl;
 				break;
 			}
-			std::getline(in, line);
+			if (!std::getline(in, line)) {
+				std::cout << "Unexpected end of stream" << std::endl;
+				break;
+			};
 		}
 		if (line != "\r")
 			break;
+		if (res.headers.count("Transfer-Encoding") == 1
+				&& res.headers.count("Content-Length") == 0) {
+			if (!read_chunked_body(in, res.body))
+				break;
+		} else if (res.headers.count("Transfer-Encoding") == 0
+				&& res.headers.count("Content-Length") == 1) { //content-type body
+		} else { //check if there is illegal body
+		}
 
-//chunked body
-		//content-type body
 		ret = 1;
 	} while (0);
+
 	return !!ret;
 }
 

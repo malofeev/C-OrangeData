@@ -68,6 +68,8 @@ int main(int argc, char ** argv) {
 		std::cout << "Max message length " << max_msg_len << " is exceeded\n";
 	}
 	get_status(conf, ctx, "newId1", rstr);
+	response = json_loads(rstr.c_str(), 0, j_error);
+	std::cout<<"The end\n"<<json_dumps(response, JSON_COMPACT)<<"\n =========";
 	/*if (post(curl, body, conf, &buf) == CURLE_OK) {
 	 curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responce_code);
 	 if (responce_code == 201) {
