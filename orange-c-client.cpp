@@ -640,7 +640,7 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
  * @param[in] skey Request signing private key
  * @param[in] json Document's json
  * @param[in] type Document type, 0 for check (default), 1 for correction
- * @return  Http status code*/
+ * @return  Http status code, 0 if POST fails*/
 int post_doc(str_map &conf, SSL_CTX * const ctx, EVP_PKEY * const skey,
 		const std::string &json, int type) {
 
@@ -659,8 +659,8 @@ int post_doc(str_map &conf, SSL_CTX * const ctx, EVP_PKEY * const skey,
 	sign(json, signature, skey);
 	base64_encode(signature, b64_sign);
 	req.headers["X-Signature"] = b64_sign;
-	req.headers["Content-Length"] = std::to_string(json.length());
 
+	req.headers["Content-Length"] = std::to_string(json.length());
 	req.headers["Content-Type"] = "application/json; charset=utf-8";
 
 	req.body = json;
@@ -740,13 +740,13 @@ int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 	do {
 		pkey = EVP_PKEY_new();
 		if (pkey == NULL) {
-			std::cout << "EVP_PKEY_new failed (1)," << err_string();
+			std::cout << "EVP_PKEY_new failed, " << err_string();
 			break;
 		}
 
 		FILE *key_file = fopen(keyfname.c_str(), "r");
 		if (key_file == NULL) {
-			std::cout << "EVP_PKEY_new failed (1)," << err_string();
+			std::cout <<"fopen("<<keyfname<<") failed"<<std::endl;
 			break;
 		}
 
@@ -866,7 +866,7 @@ int sign(const std::string & msg, std::string & signature,
 			break;
 		}
 
-		if (rc != 1) {
+		if (req != slen) {
 			std::cout
 					<< "EVP_DigestsignFinal failed, mismatched signature sizes "
 					<< req << ", " << slen;
