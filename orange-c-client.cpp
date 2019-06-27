@@ -595,7 +595,7 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 			req_str += req.body;
 
 		std::string::size_type len = BIO_puts(web, req_str.c_str());
-		ERR_get_error();
+
 		if (len != req_str.length()) {
 			std::cerr << err_string("BIO_puts");
 			std::cerr << "Put  " << len << "b from " << req_str.length() << "b"
