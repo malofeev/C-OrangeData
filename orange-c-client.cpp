@@ -547,7 +547,7 @@ int parse_http_message(const std::string &mes, http_response &res) {
 			}
 		} else {
 			std::cerr
-					<< "Content-Length combined with Transfer-Encoding or both are absent"
+					<< "Content-Length combined with Transfer-Encoding or both are absent or one (both) duplicated"
 					<< std::endl;
 			break;
 		}
