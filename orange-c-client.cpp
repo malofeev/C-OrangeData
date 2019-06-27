@@ -1,5 +1,6 @@
-/*
- * orange-c-client.cpp Created on: Jun 3, 2019 Author: NullinV
+/** \file
+ * C integration for OrangeData service source
+ * orange-c-client.cpp Created on: Jun 3, 2019 \author NullinV
  */
 #include <algorithm>
 #include <cstring>
@@ -17,7 +18,10 @@
 #include <openssl/ssl.h>
 
 #include "orange-c-client.h"
-
+/** Escape sequences replacement
+ * @param[in] input String with escape sequences
+ * @return New string with escape sequences replaced by their char representations.
+ *  For LF char representation is added*/
 std::string escaped(const std::string& input) {
 	std::string output;
 	output.reserve(input.size());
@@ -53,6 +57,9 @@ std::string escaped(const std::string& input) {
 	return output;
 }
 
+/** Common Name (CN) output
+ * @param[in] label Printlabel
+ * @param[in] name Certificate owner name*/
 void print_cn_name(const char* label, X509_NAME* const name) {
 	int idx = -1, success = 0;
 	unsigned char *utf8 = NULL;
@@ -89,7 +96,9 @@ void print_cn_name(const char* label, X509_NAME* const name) {
 		std::cout << "  " << label << ": <not available>" << std::endl;
 	;
 }
-
+/** Subject Alternate Names (SAN)  output
+ * @param[in] label Printlabel
+ * @param[in] cert Certificate*/
 void print_san_name(const char* label, X509* const cert) {
 	int success = 0;
 	GENERAL_NAMES* names = NULL;
@@ -156,6 +165,16 @@ void print_san_name(const char* label, X509* const cert) {
 	if (!success)
 		std::cout << "  " << label << ": <not available>" << std::endl;
 }
+
+/** Callback for interaction with the chain validation
+ * @param [in] preverify Verification result
+ * @param [in] x509_ctx SSL/TLS context object
+ * @return  obtained preverify value
+ *
+ * The callback pass the preverify result back to the library (leaving library behavior unchanged)
+ * and prints information about the certificate in the chain.
+ * The result can be modified to account for a specific issue that your software should address (override default behavior).
+ * If you don't need to interact with chain validation, then set verify_callback parameter of SSL_CTX_set_verify to NULL.*/
 int verify_callback(int preverify, X509_STORE_CTX* x509_ctx) {
 
 	int err = X509_STORE_CTX_get_error(x509_ctx);
@@ -196,9 +215,14 @@ int verify_callback(int preverify, X509_STORE_CTX* x509_ctx) {
 		else
 			std::cout << "  Error = " << err << std::endl;
 	}
-	return 1;
+	return preverify;
 }
-
+/** Configuration file parsing, SSL library initialization and context setup
+ * @param[in] argc Program argument count
+ * @param[in] argv Program argument vector
+ * @param[out] conf Configuration parameters container
+ * @param[out] ctx SSL/TLS context object
+ * @param[out] skey Request signing private key*/
 void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 		EVP_PKEY *&skey) {
 	int ret = 1;
@@ -326,14 +350,20 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 	if (!!ret)
 		exit(1);
 }
-
+/**SSL library objects cleaning
+ * @param[out] ctx SSL/TLS context object
+ * @param[out] skey Request signing private key*/
 void client_clean(SSL_CTX *&ctx, EVP_PKEY *&skey) {
 	if (NULL != ctx)
 		SSL_CTX_free(ctx);
 	if (NULL != skey)
 		EVP_PKEY_free(skey);
 }
-
+/**TLS connection establishing
+ * @param[in] ctx SSL/TLS context object
+ * @param[out] web BIO object for socket connection I/O
+ * @param[in] url API url
+ * @return  1 for success and 0 for failure*/
 int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 	int ret = 0;
 	SSL *ssl = NULL;
@@ -358,6 +388,11 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 			std::cerr << err_string("BIO_get_ssl");
 			break;
 		}
+		/*  With this option set, if the server suddenly wants a new handshake,
+		 *  OpenSSL handles it in the background. Without this option, any read
+		 *  or write operation will return an error if the server wants a new
+		 *  handshake, setting the retry flag in the process.*/
+		SSL_set_mode(ssl, SSL_MODE_AUTO_RETRY);
 
 		if (SSL_set_cipher_list(ssl, PREFERRED_CIPHERS) != 1) {
 			std::cerr << err_string("SSL_set_cipher_list");
@@ -399,7 +434,10 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 
 	return !!ret;
 }
-
+/** Parsing the http message with "Transfer-Encoding" header
+ * @param[in] in Input stream
+ * @param[out] body Http message body
+ * @return  1 for success and 0 for failure*/
 int read_chunked_body(std::istream &in, std::string &body) {
 
 	int ret = 0;
@@ -436,7 +474,10 @@ int read_chunked_body(std::istream &in, std::string &body) {
 
 	return !!ret;
 }
-
+/** Parsing the http message
+ * @param[in] mes Http message
+ * @param[out] res Http response
+ * @return  1 for success and 0 for failure*/
 int parse_http_message(const std::string &mes, http_response &res) {
 	int ret = 0;
 
@@ -516,7 +557,11 @@ int parse_http_message(const std::string &mes, http_response &res) {
 
 	return !!ret;
 }
-
+/** Perform the http request
+ * @param[in] ctx SSL\TLS context
+ * @param[in] res Http request
+ * @param[in] res Http response
+ * @return  1 for success and 0 for failure*/
 int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 	int ret = 0;
 	BIO *web = NULL, *out = NULL;
@@ -589,7 +634,13 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 		BIO_free_all(web);
 	return !!ret;
 }
-
+/** Post check or correction document
+ * @param[in] conf Configuration parameters container
+ * @param[in] ctx SSL\TLS context
+ * @param[in] skey Request signing private key
+ * @param[in] json Document's json
+ * @param[in] type Document type, 0 for check (default), 1 for correction
+ * @return  Http status code*/
 int post_doc(str_map &conf, SSL_CTX * const ctx, EVP_PKEY * const skey,
 		const std::string &json, int type) {
 
@@ -623,6 +674,13 @@ int post_doc(str_map &conf, SSL_CTX * const ctx, EVP_PKEY * const skey,
 	return ret;
 }
 
+/** Get check or correction document status
+ * @param[in] conf Configuration parameters container
+ * @param[in] ctx SSL\TLS context
+ * @param[in] doc_id Document ID
+ * @param[out] json Status response's json
+ * @param[in] type Document type, 0 for check (default), 1 for correction
+ * @return  1 for success and 0 for failure*/
 int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
 		std::string &json, int type) {
 	http_request req;
@@ -660,10 +718,15 @@ int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
 
 	return ret;
 }
-
+/** Read crypto key from file
+ * @param[out] pkey Crypto key
+ * @param[in] keyfname Source file name
+ * @param[in] pass_phrase File passphrase
+ * @param[in] key_type Key type, 0 - private (default), 1 - public
+ * @return  1 for success and 0 for failure*/
 int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 		const std::string &pass_phrase,
-		int key_type /*0 - private, 1 - public*/) {
+		int key_type) {
 	int result = 0;
 
 	if (pkey != NULL) {
@@ -728,13 +791,17 @@ int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 
 	return !!result;
 }
-
+/** Sign message
+ * @param[in] msg Message
+ * @param[out] signature Signature
+ * @param[in] pkey Private key
+ * @return  1 for success and 0 for failure*/
 int sign(const std::string & msg, std::string & signature,
 		EVP_PKEY * const pkey) {
-	int result = -1;
+	int result = 0;
 
 	if (!pkey) {
-		return -1;
+		return result;
 	}
 
 	unsigned char * signature_buff = NULL;
@@ -808,7 +875,7 @@ int sign(const std::string & msg, std::string & signature,
 
 		signature.assign(reinterpret_cast<char*>(signature_buff), slen);
 		delete[] signature_buff;
-		result = 0;
+		result = 1;
 
 	} while (0);
 
@@ -819,7 +886,9 @@ int sign(const std::string & msg, std::string & signature,
 
 	return !!result;
 }
-
+/** Text base64 encoding
+ * @param[in] text Text for encoding
+ * @param[out] base64_text Encoded text*/
 void base64_encode(const std::string &text, std::string &base64_text) {
 	BIO *bio, *b64;
 	BUF_MEM *bufferPtr;
@@ -844,7 +913,9 @@ void base64_encode(const std::string &text, std::string &base64_text) {
 	BIO_set_close(bio, BIO_NOCLOSE);
 	BIO_free_all(bio);
 }
-
+/** Text base64 decoding
+ * @param[in] b64_str Text for decoding
+ * @param[out] d_str Decoded text*/
 void base64_decode(const std::string & b64_str, std::string & d_str) {
 	BIO *bio, *b64;
 
@@ -871,14 +942,18 @@ void base64_decode(const std::string & b64_str, std::string & d_str) {
 	delete[] b64_buff;
 	delete[] d_buff;
 }
-
+/** Converting char representation of string size to std::string::size_type
+ * @param[in] str Char representation of string size
+ * @return std::string::size_type value of string size*/
 std::string::size_type to_size_type(const std::string &str) {
 	std::stringstream ss(str);
 	std::string::size_type res;
 	ss >> res;
 	return res;
 }
-
+/** Read whole file to string
+ * @param[in] filename Source file name
+ * @return File content*/
 std::string read_file(const std::string &filename) {
 
 	std::ifstream ifs(filename, std::ios::binary);
@@ -887,7 +962,9 @@ std::string read_file(const std::string &filename) {
 	sstr << ifs.rdbuf();
 	return sstr.str();
 }
-
+/** Remove whitespaces from the string beginig and end
+ * @param[in] s Source string
+ * @return New string without whitespaces*/
 std::string trim(const std::string &s) {
 	auto start = s.begin();
 	while (start != s.end() && std::isspace(*start)) {
@@ -901,7 +978,9 @@ std::string trim(const std::string &s) {
 
 	return std::string(start, end + 1);
 }
-
+/** Obtain human-readable openSSL error message
+ * @param[in] label Error source
+ * @return error message*/
 std::string err_string(std::string label) {
 	unsigned long err = ERR_get_error();
 	const char* const str = ERR_reason_error_string(err);
@@ -911,7 +990,9 @@ std::string err_string(std::string label) {
 		return label + " error 0x" + std::to_string(err) + "\t"
 				+ ERR_error_string(err, NULL) + "\n";
 }
-
+/** Get host from url string
+ * @param[in] url Source url
+ * @return host*/
 std::string get_host(const std::string &url) {
 	std::string::size_type scheme_pos = url.find("://");
 	if (scheme_pos == std::string::npos)
@@ -923,7 +1004,9 @@ std::string get_host(const std::string &url) {
 
 	return url.substr(scheme_pos + 1, std::min(port, target) - scheme_pos - 1);
 }
-
+/** Get port from url string
+ * @param[in] url Source url
+ * @return port*/
 std::string get_port(const std::string &url) {
 	std::string::size_type scheme_pos = url.find("://");
 	if (scheme_pos == std::string::npos)
@@ -938,7 +1021,9 @@ std::string get_port(const std::string &url) {
 		target = url.length();
 	return url.substr(port, target - port);
 }
-
+/** Get target from url string
+ * @param[in] url Source url
+ * @return target*/
 std::string get_target(const std::string &url) {
 	std::string::size_type scheme_pos = url.find("://");
 	if (scheme_pos == std::string::npos)
@@ -953,6 +1038,9 @@ std::string get_target(const std::string &url) {
 					url.length() - target
 							- (url.at(url.length() - 1) == '/' ? 1 : 0));
 }
+/** Get char representation of http request method
+ * @param[in] m Method
+ * @return Char representation of http request method*/
 std::string method_str(const request_methods m) {
 	switch (m) {
 	case POST:
@@ -962,6 +1050,6 @@ std::string method_str(const request_methods m) {
 		return "GET";
 		break;
 	default:
-		return "FALSE";
+		return "BAD METHOD";
 	}
 }

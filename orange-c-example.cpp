@@ -1,5 +1,6 @@
-/*
- * orange-c-example.cpp Created on: Jun 12, 2019 Author: NullinV
+/** \file
+ * C integration for OrangeData service header
+ * orange-c-example.cpp Created on: Jun 12, 2019 \author NullinV
  */
 #include <cstring>
 #include <ctime>

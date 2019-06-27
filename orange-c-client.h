@@ -1,5 +1,6 @@
-/*
- * orange-c-client.h Created on: Jun 12, 2019 Author: NullinV
+/** \file
+ * C integration for OrangeData service header
+ * orange-c-client.h Created on: Jun 12, 2019  \author NullinV
  */
 
 #ifndef ORANGE_C_CLIENT_H_
@@ -12,7 +13,7 @@
 
 #include <openssl/evp.h>
 #include <openssl/x509v3.h>
-
+/**Supported http request method*/
 enum request_methods {
 	GET, POST
 };
@@ -21,6 +22,7 @@ std::string method_str(const request_methods m);
 
 
 typedef std::map<std::string, std::string> str_map;
+/**Http request parameters container*/
 struct http_request {
 	request_methods method;
 	std::string request_target;
@@ -28,7 +30,7 @@ struct http_request {
 	str_map headers;
 	std::string body;
 };
-
+/**Http response parameters container*/
 struct http_response {
 	int status_code;
 	std::string reason_phrase;
