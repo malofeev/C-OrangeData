@@ -244,17 +244,27 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 		}
 
 #if defined(NDEBUG)
-		std::cout << "Configuration file:" << argv[1] << std::endl;
+		std::cout << "Configuration file: " << argv[1] << std::endl;
 #endif
-
+		int lnum = 0;
 		while (getline(cfg_file, line)) {
-			auto pos = line.find('=');
-			if (pos != std::string::npos)
+			lnum++;
 #if defined(NDEBUG)
-				std::cout << line << std::endl;
+				std::cout <<lnum<<" "<< line << std::endl;
 #endif
-				conf[trim(line.substr(0, pos))] = trim(
-						line.substr(pos + 1, line.size()));
+			if (line == "")
+				continue;
+			auto pos = line.find('=');
+			if (pos == std::string::npos)
+				std::cout << "Delimiter \"=\" is absent at line " << lnum
+						<< " is skiped" << std::endl;
+			else {
+				auto parm = trim(line.substr(0, pos));
+				if (conf.count(parm))
+					std::cout << "Parameter " << parm << " recurs at line "
+							<< lnum << ", the last value is used" << std::endl;
+				conf[parm] = trim(line.substr(pos + 1, line.size()));
+			}
 		}
 		std::cout << std::endl;
 
@@ -725,8 +735,7 @@ int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
  * @param[in] key_type Key type, 0 - private (default), 1 - public
  * @return  1 for success and 0 for failure*/
 int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
-		const std::string &pass_phrase,
-		int key_type) {
+		const std::string &pass_phrase, int key_type) {
 	int result = 0;
 
 	if (pkey != NULL) {
@@ -746,7 +755,7 @@ int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 
 		FILE *key_file = fopen(keyfname.c_str(), "r");
 		if (key_file == NULL) {
-			std::cout <<"fopen("<<keyfname<<") failed"<<std::endl;
+			std::cout << "fopen(" << keyfname << ") failed" << std::endl;
 			break;
 		}
 
@@ -999,7 +1008,7 @@ std::string get_host(const std::string &url) {
 		scheme_pos = -1;
 	else
 		scheme_pos += 2;
-	std::string::size_type target = url.find('/', scheme_pos + 1); //check ""
+	std::string::size_type target = url.find('/', scheme_pos + 1);
 	std::string::size_type port = url.find(':', scheme_pos + 1);
 
 	return url.substr(scheme_pos + 1, std::min(port, target) - scheme_pos - 1);
