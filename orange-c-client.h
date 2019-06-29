@@ -22,19 +22,20 @@ std::string method_str(const request_methods m);
 
 
 typedef std::map<std::string, std::string> str_map;
+typedef std::multimap<std::string, std::string> str_multimap;
 /**Http request parameters container*/
 struct http_request {
 	request_methods method;
 	std::string request_target;
 	str_map query;
-	str_map headers;
+	str_multimap headers;
 	std::string body;
 };
 /**Http response parameters container*/
 struct http_response {
 	int status_code;
 	std::string reason_phrase;
-	str_map headers;
+	str_multimap headers;
 	std::string body;
 };
 const char* const PREFERRED_CIPHERS =

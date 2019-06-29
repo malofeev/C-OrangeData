@@ -257,7 +257,7 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 			auto pos = line.find('=');
 			if (pos == std::string::npos)
 				std::cout << "Delimiter \"=\" is absent at line " << lnum
-						<< " is skiped" << std::endl;
+						<< " line is skiped" << std::endl;
 			else {
 				auto parm = trim(line.substr(0, pos));
 				if (conf.count(parm))
@@ -528,8 +528,9 @@ int parse_http_message(const std::string &mes, http_response &res) {
 		while (line != "\r") {
 			auto pos = line.find(':');
 			if (pos != std::string::npos)
-				res.headers[trim(line.substr(0, pos))] = trim(
-						line.substr(pos + 1, line.size()));
+				res.headers.insert(
+						{ trim(line.substr(0, pos)), trim(
+								line.substr(pos + 1, line.size())) });
 			else {
 				std::cerr << "Bad header line:" << line << std::endl;
 				break;
@@ -547,10 +548,10 @@ int parse_http_message(const std::string &mes, http_response &res) {
 				break;
 		} else if (res.headers.count("Transfer-Encoding") == 0
 				&& res.headers.count("Content-Length") == 1) {
-			if (res.headers["Content-Length"] != "0") {
+			if (res.headers.find("Content-Length")->second != "0") {
 				std::getline(in, res.body);
 				if (std::to_string(res.body.length())
-						!= res.headers["Content-Length"]) {
+						!= res.headers.find("Content-Length")->second ) {
 					std::cerr << "Bad body length" << std::endl;
 					break;
 				}
@@ -581,7 +582,7 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 	res = {};
 
 	do {
-		if (connect(ctx, web, req.headers["Host"]) != 1)
+		if (connect(ctx, web, req.headers.find("Host")->second)!= 1)
 			break;
 
 		req_str += method_str(req.method) + ' ' + req.request_target;
@@ -594,7 +595,7 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 		req_str += " HTTP/1.1\r\n";
 
 		if (req.headers.count("Connection") == 0)
-			req.headers["Connection"] = "close";
+			req.headers.insert({"Connection","close"});
 
 		for (auto it : req.headers)
 			req_str += it.first + ": " + it.second + "\r\n";
@@ -664,14 +665,14 @@ int post_doc(str_map &conf, SSL_CTX * const ctx, EVP_PKEY * const skey,
 	req.method = POST;
 	req.request_target = get_target(conf["url"])
 			+ (type == 0 ? "/documents/" : "/corrections/");
-	req.headers["Host"] = get_host(conf["url"]) + get_port(conf["url"]);
+	req.headers.insert({"Host",get_host(conf["url"]) + get_port(conf["url"])});
 
 	sign(json, signature, skey);
 	base64_encode(signature, b64_sign);
-	req.headers["X-Signature"] = b64_sign;
+	req.headers.insert({"X-Signature",b64_sign});
 
-	req.headers["Content-Length"] = std::to_string(json.length());
-	req.headers["Content-Type"] = "application/json; charset=utf-8";
+	req.headers.insert({"Content-Length",std::to_string(json.length())});
+	req.headers.insert({"Content-Type","application/json; charset=utf-8"});
 
 	req.body = json;
 
@@ -701,7 +702,7 @@ int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
 	req.request_target = get_target(conf["url"])
 			+ (type == 0 ? "/documents/" : "/corrections/") + conf["inn"]
 			+ "/status/" + doc_id;
-	req.headers["Host"] = get_host(conf["url"]) + get_port(conf["url"]);
+	req.headers.insert({"Host",get_host(conf["url"]) + get_port(conf["url"])});
 
 	long elapsed = 0;
 
