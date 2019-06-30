@@ -56,6 +56,8 @@ std::string get_port(const std::string &url);
 std::string get_target(const std::string &url);
 
 int read_chunked_body(std::istream &in,std::string &body);
+int get_content_length(const str_multimap & headers, std::string::size_type length);
+int read_body(std::istream &in,http_response & res);
 int parse_http_message(const std::string &mes, http_response &res);
 
 int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url);

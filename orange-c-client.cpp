@@ -484,6 +484,92 @@ int read_chunked_body(std::istream &in, std::string &body) {
 
 	return !!ret;
 }
+
+/** Read body length from Content-Length headers
+ * @param[in] headers Message headers
+ * @param[out] length Content-Length value
+ * @return  -1 for invalid headers value, 0 for absent header, 1 for success*/
+int get_content_length(const str_multimap & headers,
+		std::string::size_type length) {
+	if (!headers.count("Content-Length"))
+		return 0;
+
+	auto lb = headers.lower_bound("Content-Length");
+	auto ub = headers.upper_bound("Content-Length");
+	std::string values, f_str, n_str;
+
+	for (auto it = lb; it != ub; it++)
+		values += it->second + ',';
+	values.pop_back();
+
+	std::istringstream iss(values);
+	std::getline(iss, f_str, ',');
+	f_str = trim(f_str);
+	while (std::getline(iss, f_str, ','))
+		if (f_str != trim(n_str)) {
+			std::cout << "Content-Length header fields differing field-values: "
+					<< f_str << " & " << trim(n_str) << std::endl;
+			return -1;
+		}
+
+	try {
+		length = std::stoi(f_str);
+	} catch (std::invalid_argument &ex) {
+		std::cout << "Content-Length invalid value: " << f_str << std::endl;
+		return -1;
+	} catch (std::out_of_range &ex) {
+		std::cout << "Content-Length invalid value: " << f_str << std::endl;
+		return -1;
+	};
+
+	return 1;
+}
+
+/** Read http message body
+ * @param[in] in Input stream
+ * @param[in,out] res Http_response structure with filled headers multimap
+ * @return  1 for success and 0 for failure*/
+int read_body(std::istream &in, http_response & res) {
+	int ret = 0;
+	std::string::size_type len = 0;
+	switch (res.headers.count("Transfer-Encoding")) {
+	case 0:
+		switch (get_content_length(res.headers, len)) {
+		case -1: //Content-Length header field has an invalid value
+			break;
+		case 0:
+			/*this is a response message without a declared message body length,
+			 so the message body length is determined by the number of octets received
+			 prior to the server closing the	connection.*/
+			std::getline(in, res.body);
+			break;
+		case 1: //Content-Length header field value = len
+			std::getline(in, res.body);
+			if (res.body.length() == len)
+				ret = 1;
+			else
+				std::cerr << "Bad body length" << std::endl;
+			break;
+		}
+		break;
+	case 1:
+		if (res.headers.count("Content-Length") == 0)
+			if (res.headers.find("Transfer-Encoding")->second == "chunked")
+				ret = read_chunked_body(in, res.body);
+			else
+				std::cerr << "Bad Transfer-Encoding transfer coding name"
+						<< std::endl;
+		else
+			std::cerr << "Content-Length is combined with Transfer-Encoding"
+					<< std::endl;
+		break;
+	default:
+		std::cerr << "Multiple Transfer-Encoding headers" << std::endl;
+		break;
+	}
+	return ret;
+}
+
 /** Parsing the http message
  * @param[in] mes Http message
  * @param[out] res Http response
@@ -542,26 +628,8 @@ int parse_http_message(const std::string &mes, http_response &res) {
 		}
 		if (line != "\r")
 			break;
-		if (res.headers.count("Transfer-Encoding") == 1
-				&& res.headers.count("Content-Length") == 0) {
-			if (!read_chunked_body(in, res.body))
-				break;
-		} else if (res.headers.count("Transfer-Encoding") == 0
-				&& res.headers.count("Content-Length") == 1) {
-			if (res.headers.find("Content-Length")->second != "0") {
-				std::getline(in, res.body);
-				if (std::to_string(res.body.length())
-						!= res.headers.find("Content-Length")->second ) {
-					std::cerr << "Bad body length" << std::endl;
-					break;
-				}
-			}
-		} else {
-			std::cerr
-					<< "Content-Length combined with Transfer-Encoding or both are absent or one (both) duplicated"
-					<< std::endl;
+		if (!read_body(in, res))
 			break;
-		}
 
 		ret = 1;
 	} while (0);
@@ -582,7 +650,7 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 	res = {};
 
 	do {
-		if (connect(ctx, web, req.headers.find("Host")->second)!= 1)
+		if (connect(ctx, web, req.headers.find("Host")->second) != 1)
 			break;
 
 		req_str += method_str(req.method) + ' ' + req.request_target;
@@ -595,7 +663,7 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 		req_str += " HTTP/1.1\r\n";
 
 		if (req.headers.count("Connection") == 0)
-			req.headers.insert({"Connection","close"});
+			req.headers.insert( { "Connection", "close" });
 
 		for (auto it : req.headers)
 			req_str += it.first + ": " + it.second + "\r\n";
@@ -665,14 +733,15 @@ int post_doc(str_map &conf, SSL_CTX * const ctx, EVP_PKEY * const skey,
 	req.method = POST;
 	req.request_target = get_target(conf["url"])
 			+ (type == 0 ? "/documents/" : "/corrections/");
-	req.headers.insert({"Host",get_host(conf["url"]) + get_port(conf["url"])});
+	req.headers.insert(
+			{ "Host", get_host(conf["url"]) + get_port(conf["url"]) });
 
 	sign(json, signature, skey);
 	base64_encode(signature, b64_sign);
-	req.headers.insert({"X-Signature",b64_sign});
+	req.headers.insert( { "X-Signature", b64_sign });
 
-	req.headers.insert({"Content-Length",std::to_string(json.length())});
-	req.headers.insert({"Content-Type","application/json; charset=utf-8"});
+	req.headers.insert( { "Content-Length", std::to_string(json.length()) });
+	req.headers.insert( { "Content-Type", "application/json; charset=utf-8" });
 
 	req.body = json;
 
@@ -702,7 +771,8 @@ int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
 	req.request_target = get_target(conf["url"])
 			+ (type == 0 ? "/documents/" : "/corrections/") + conf["inn"]
 			+ "/status/" + doc_id;
-	req.headers.insert({"Host",get_host(conf["url"]) + get_port(conf["url"])});
+	req.headers.insert(
+			{ "Host", get_host(conf["url"]) + get_port(conf["url"]) });
 
 	long elapsed = 0;
 
