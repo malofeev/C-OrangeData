@@ -57,7 +57,8 @@ std::string escaped(const std::string& input) {
 	return output;
 }
 
-/** Common Name (CN) output
+/** Common Name (CN) output. CN is the server name protected by the SSL certificate.
+ * The certificate is valid only if the request hostname matches the certificate common name.
  * @param[in] label Printlabel
  * @param[in] name Certificate owner name*/
 void print_cn_name(const char* label, X509_NAME* const name) {
@@ -96,7 +97,8 @@ void print_cn_name(const char* label, X509_NAME* const name) {
 		std::cout << "  " << label << ": <not available>" << std::endl;
 	;
 }
-/** Subject Alternate Names (SAN)  output
+/** Subject Alternate Names (SAN)  output. The SAN lets you specify additional host names (sites, IP addresses, common names, etc.)
+ *  to be protected by a single SSL Certificate, such as a Multi-Domain (SAN) or Extend Validation Multi-Domain Certificate.
  * @param[in] label Printlabel
  * @param[in] cert Certificate*/
 void print_san_name(const char* label, X509* const cert) {
@@ -290,10 +292,11 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 					<< std::endl;
 			break;
 		};
-
+		/*SSL_library_init() registers the available SSL/TLS ciphers and digests.
+		 *SSL_library_init() must be called before any other action takes place. SSL_library_init() is not reentrant.
+		 *SSL_library_init() always returns "1".*/
 		SSL_library_init();
-		SSL_load_error_strings();
-		;
+		//SSL_load_error_strings();
 
 		const SSL_METHOD* method = TLS_method();
 
@@ -491,12 +494,13 @@ int read_chunked_body(std::istream &in, std::string &body) {
  * @return  -1 for invalid headers value, 0 for absent header, 1 for success*/
 int get_content_length(const str_multimap & headers,
 		std::string::size_type length) {
-	if (!headers.count("Content-Length"))
-		return 0;
 
 	auto lb = headers.lower_bound("Content-Length");
 	auto ub = headers.upper_bound("Content-Length");
 	std::string values, f_str, n_str;
+
+	if (lb == ub)
+		return 0;
 
 	for (auto it = lb; it != ub; it++)
 		values += it->second + ',';
@@ -786,12 +790,13 @@ int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
 
 		json_error_t * j_error = NULL;
 		json_t *response = json_loads(res.body.c_str(), 0, j_error);
+		std::string doc_id = json_string_value(json_object_get(response, "id"));
 		std::string ofdName = json_string_value(
 				json_object_get(response, "ofdName"));
 		std::string processedAt = json_string_value(
 				json_object_get(response, "processedAt"));
-		std::cout << "Document processed by " << ofdName << " at "
-				<< processedAt << std::endl;
+		std::cout << "Document № " << doc_id << " processed by " << ofdName
+				<< " at " << processedAt << std::endl;
 
 		json = res.body;
 		ret = 1;
@@ -1063,12 +1068,8 @@ std::string trim(const std::string &s) {
  * @return error message*/
 std::string err_string(std::string label) {
 	unsigned long err = ERR_get_error();
-	const char* const str = ERR_reason_error_string(err);
-	if (str)
-		return str;
-	else
-		return label + " error 0x" + std::to_string(err) + "\t"
-				+ ERR_error_string(err, NULL) + "\n";
+
+	return label + ": " + ERR_error_string(err, NULL) + "\n";
 }
 /** Get host from url string
  * @param[in] url Source url
