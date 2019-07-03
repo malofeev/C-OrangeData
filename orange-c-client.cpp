@@ -292,12 +292,16 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 					<< std::endl;
 			break;
 		};
-		/*SSL_library_init() registers the available SSL/TLS ciphers and digests.
-		 *SSL_library_init() must be called before any other action takes place. SSL_library_init() is not reentrant.
-		 *SSL_library_init() always returns "1".*/
+		/* SSL_library_init() registers the available SSL/TLS ciphers and digests.
+		 * SSL_library_init() must be called before any other action takes place. SSL_library_init() is not reentrant.
+		 * SSL_library_init() always returns "1".*/
 		SSL_library_init();
-		//SSL_load_error_strings();
 
+		/* SSL_METHOD (SSL Method)
+		 * This is a dispatch structure describing the internal ssl library methods/functions which implement
+		 * the various protocol versions (SSLv3 TLSv1, ...). It's needed to create an SSL_CTX.
+		 * Get the general-purpose version-flexible SSL/TLS methods. The actual protocol version used
+		 * will be negotiated to the highest version mutually supported by the client and the server.*/
 		const SSL_METHOD* method = TLS_method();
 
 		if (!(NULL != method)) {
@@ -305,6 +309,10 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 			break;
 		}
 
+		/* SSL_CTX (SSL Context)
+		* This is the global context structure which is created by a server or client once per program life-time
+		* and which holds mainly default values for the SSL structures which are later created for the connections.
+		* Create a new SSL_CTX object as framework for TLS/SSL or DTLS enabled functions*/
 		ctx = SSL_CTX_new(method);
 
 		if (!(ctx != NULL)) {
@@ -342,12 +350,16 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 			break;
 		}
 
+		//Set peer certificate verification parameters
 		SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, verify_callback);
 		SSL_CTX_set_verify_depth(ctx, 5);
 
 		SSL_CTX_set_options(ctx,
-		SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
+		SSL_OP_ALL // Allow all of the above bug workarounds & legacy insecure renegotiation between OpenSSL and unpatched servers only
+		| SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 // Do not use SSLv2 & SSLv3
+		| SSL_OP_NO_COMPRESSION); //Do not use compression even if it is supported
 
+		//set default locations for trusted CA certificates
 		if (conf.count("verify_locations"))
 			if (SSL_CTX_load_verify_locations(ctx, NULL,
 					conf["verify_locations"].c_str()) != 1) {
@@ -384,6 +396,12 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 	std::string port = get_port(url);
 
 	do {
+		/* A BIO is an poenSSL I/O abstraction. If an application uses a BIO for its I/O it can transparently handle
+		 * SSL connections, unencrypted network connections and file I/O.
+		 * BIO_new_ssl_connect() creates a new BIO chain consisting of an SSL BIO (using ctx) followed by a connect BIO
+		 * There are two type of BIO, a source/sink BIO and a filter BIO.
+		 * A source/sink BIO is a source and/or sink of data, examples include a socket BIO and a file BIO.
+		 * A filter BIO takes data from one BIO and passes it through to another, or the application.*/
 		web = BIO_new_ssl_connect(ctx);
 		if (!(web != NULL)) {
 			std::cerr << err_string("BIO_new_ssl_connect");
@@ -395,6 +413,11 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 			break;
 		}
 
+		/* SSL (SSL Connection)
+		 * This is the main SSL/TLS structure which is created by a server or client per established connection.
+		 * This actually is the core structure in the SSL API. At run-time the application usually deals with
+		 * this structure which has links to mostly all other structures.
+		 * BIO_get_ssl() retrieves the SSL pointer of given BIO*/
 		BIO_get_ssl(web, &ssl);
 
 		if (!(ssl != NULL)) {
@@ -412,16 +435,34 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 			break;
 		}
 
+		/* SSL_set_tlsext_host_name() sets the server name indication ClientHello extension to contain the given name.
+		 * The type of server name indication extension is set to TLSEXT_NAMETYPE_host_name (defined in RFC3546)
+		 * The SSL_set_tlsext_host_name() function should only be called on SSL objects that will act as clients;
+		 * otherwise the configured name will be ignored.*/
 		if (SSL_set_tlsext_host_name(ssl, host.c_str()) != 1) {
 			std::cerr << err_string("SSL_set_tlsext_host_name");
 			break;
 		}
 
+		/* BIO_do_connect() attempts to connect the supplied BIO. It returns 1 if the connection was established successfully.
+		 * A zero or negative value is returned if the connection could not be established,
+		 * the call BIO_should_retry() should be used for non blocking connect BIOs to determine if the call should be retried.
+		 * If blocking I/O is set then a non positive return value from any I/O call is caused by an error condition,
+		 * although a zero return will normally mean that the connection was closed.
+		 * The values returned by BIO_get_conn_hostname(), BIO_get_conn_address(), and BIO_get_conn_port() are updated
+		 * when a connection attempt is made. Before any connection attempt the values returned are those set by the application itself.
+		 * Applications do not have to call BIO_do_connect() but may wish to do so to separate the connection process from other I/O processing.*/
 		if (BIO_do_connect(web) != 1) {
 			std::cerr << err_string("BIO_do_connect");
 			break;
 		}
 
+		/* BIO_do_handshake() attempts to complete an SSL handshake on the supplied BIO and establish the SSL connection.
+		 * It returns 1 if the connection was established successfully.
+		 * A zero or negative value is returned if the connection could not be established,
+		 * the call BIO_should_retry() should be used for non blocking connect BIOs to determine if the call should be retried.
+		 * If an SSL connection has already been established this call has no effect.
+		 * Applications do not have to call BIO_do_handshake() but may wish to do so to separate the handshake process from other I/O processing.*/
 		if (BIO_do_handshake(web) != 1) {
 			std::cerr << err_string("BIO_do_handshake");
 			break;
@@ -437,6 +478,15 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 			break;
 		}
 
+		/* SSL_get_verify_result() returns the result of the verification of the X509 certificate presented by the peer, if any.
+		 * SSL_get_verify_result() can only return one error code
+		 * while the verification of a certificate can fail because of many reasons at the same time.
+		 * Only the last verification error that occurred during the processing is available from SSL_get_verify_result().
+		 * The verification result is part of the established session and is restored when a session is reused.
+		 *
+		 * BUGS https://www.openssl.org/docs/manmaster/man3/SSL_get_verify_result.html
+		 * If no peer certificate was presented, the returned result code is X509_V_OK.
+		 * This is because no verification error occurred, it does however not indicate success.*/
 		if (SSL_get_verify_result(ssl) != X509_V_OK) {
 			std::cerr << err_string("SSL_get_verify_result(ssl)");
 			break;
@@ -447,7 +497,8 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 
 	return !!ret;
 }
-/** Parsing the http message with "Transfer-Encoding" header
+/** Parsing the http message with "Transfer-Encoding" header.
+ * Accordinding to https://tools.ietf.org/html/rfc7230#section-4. Only chunked coding without Trailer Part.
  * @param[in] in Input stream
  * @param[out] body Http message body
  * @return  1 for success and 0 for failure*/
@@ -488,7 +539,7 @@ int read_chunked_body(std::istream &in, std::string &body) {
 	return !!ret;
 }
 
-/** Read body length from Content-Length headers
+/** Read body length from Content-Length headers. According to https://tools.ietf.org/html/rfc7230#section-3.3.3 points 4&5
  * @param[in] headers Message headers
  * @param[out] length Content-Length value
  * @return  -1 for invalid headers value, 0 for absent header, 1 for success*/
@@ -529,7 +580,7 @@ int get_content_length(const str_multimap & headers,
 	return 1;
 }
 
-/** Read http message body
+/** Read http message body. According to https://tools.ietf.org/html/rfc7230#section-3.3.3
  * @param[in] in Input stream
  * @param[in,out] res Http_response structure with filled headers multimap
  * @return  1 for success and 0 for failure*/
@@ -574,7 +625,7 @@ int read_body(std::istream &in, http_response & res) {
 	return ret;
 }
 
-/** Parsing the http message
+/** Parsing the http message. According to https://tools.ietf.org/html/rfc7230#section-3
  * @param[in] mes Http message
  * @param[out] res Http response
  * @return  1 for success and 0 for failure*/
@@ -687,6 +738,9 @@ int perform(SSL_CTX * const ctx, http_request &req, http_response &res) {
 		}
 
 		len = 0;
+
+		/*BIO_s_mem() returns the memory BIO method function. A memory BIO is a source/sink BIO which uses memory for its I/O.
+		 * Data written to a memory BIO is stored in a BUF_MEM structure which is extended as appropriate to accommodate the stored data.*/
 		out = BIO_new(BIO_s_mem());
 
 		do {
@@ -819,6 +873,10 @@ int read_key(EVP_PKEY*& pkey, const std::string &keyfname,
 		pkey = NULL;
 	}
 
+	/* An RSA object contains the components for the public and private key, n, e, d, p, q, dmp1, dmq1 and iqmp.
+	 * n is the modulus common to both public and private key, e is the public exponent and d is the private exponent.
+	 * p, q, dmp1, dmq1 and iqmp are the factors for the second representation of a private key (see PKCS#1 section 3 Key Types),
+	 * where p and q are the first and second factor of n and dmp1, dmq1 and iqmp are the exponents and coefficient for CRT calculations.*/
 	RSA *rsa = NULL;
 	char *w_pass_phrase = NULL;
 
@@ -891,7 +949,7 @@ int sign(const std::string & msg, std::string & signature,
 
 	unsigned char * signature_buff = NULL;
 	size_t slen = 0;
-
+	//a Message Digest context
 	EVP_MD_CTX* ctx = NULL;
 
 	do {
