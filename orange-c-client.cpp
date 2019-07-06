@@ -310,9 +310,9 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 		}
 
 		/* SSL_CTX (SSL Context)
-		* This is the global context structure which is created by a server or client once per program life-time
-		* and which holds mainly default values for the SSL structures which are later created for the connections.
-		* Create a new SSL_CTX object as framework for TLS/SSL or DTLS enabled functions*/
+		 * This is the global context structure which is created by a server or client once per program life-time
+		 * and which holds mainly default values for the SSL structures which are later created for the connections.
+		 * Create a new SSL_CTX object as framework for TLS/SSL or DTLS enabled functions*/
 		ctx = SSL_CTX_new(method);
 
 		if (!(ctx != NULL)) {
@@ -357,7 +357,7 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 		SSL_CTX_set_options(ctx,
 		SSL_OP_ALL // Allow all of the above bug workarounds & legacy insecure renegotiation between OpenSSL and unpatched servers only
 		| SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 // Do not use SSLv2 & SSLv3
-		| SSL_OP_NO_COMPRESSION); //Do not use compression even if it is supported
+				| SSL_OP_NO_COMPRESSION); //Do not use compression even if it is supported
 
 		//set default locations for trusted CA certificates
 		if (conf.count("verify_locations"))
@@ -844,16 +844,20 @@ int get_status(str_map &conf, SSL_CTX *ctx, const std::string &doc_id,
 
 		json_error_t * j_error = NULL;
 		json_t *response = json_loads(res.body.c_str(), 0, j_error);
-		std::string doc_id = json_string_value(json_object_get(response, "id"));
-		std::string ofdName = json_string_value(
-				json_object_get(response, "ofdName"));
-		std::string processedAt = json_string_value(
-				json_object_get(response, "processedAt"));
-		std::cout << "Document № " << doc_id << " processed by " << ofdName
-				<< " at " << processedAt << std::endl;
+		if (response) {
+			std::string doc_id = json_string_value(
+					json_object_get(response, "id"));
+			std::string ofdName = json_string_value(
+					json_object_get(response, "ofdName"));
+			std::string processedAt = json_string_value(
+					json_object_get(response, "processedAt"));
+			std::cout << "Document № " << doc_id << " processed by " << ofdName
+					<< " at " << processedAt << std::endl;
 
-		json = res.body;
-		ret = 1;
+			json = res.body;
+			ret = 1;
+		} else
+			std::cout << j_error->text;
 	};
 
 	return ret;
