@@ -2,6 +2,7 @@
  * C integration for OrangeData service source
  * orange-c-client.cpp Created on: Jun 3, 2019 \author NullinV
  */
+
 #include <algorithm>
 #include <cstring>
 #include <chrono>
@@ -187,7 +188,6 @@ int verify_callback(int preverify, X509_STORE_CTX* x509_ctx) {
 	X509_NAME* iname = cert ? X509_get_issuer_name(cert) : NULL;
 	X509_NAME* sname = cert ? X509_get_subject_name(cert) : NULL;
 
-
 	std::cout << "verify_callback (depth=" << depth << ")(preverify="
 			<< preverify << ")" << std::endl;
 
@@ -246,13 +246,14 @@ void client_init(int argc, char** argv, str_map &conf, SSL_CTX *&ctx,
 		}
 
 #if defined(NDEBUG)
+		std::cout << OPENSSL_VERSION_TEXT << std::endl;
 		std::cout << "Configuration file: " << argv[1] << std::endl;
 #endif
 		int lnum = 0;
 		while (getline(cfg_file, line)) {
 			lnum++;
 #if defined(NDEBUG)
-				std::cout <<lnum<<" "<< line << std::endl;
+			std::cout << lnum << " " << line << std::endl;
 #endif
 			if (line == "")
 				continue;
@@ -444,6 +445,16 @@ int connect(SSL_CTX * const ctx, BIO*&web, const std::string &url) {
 			break;
 		}
 
+		/* SSL_set1_host() sets the expected DNS hostname. If name is NULL, or the empty string the list of hostnames is cleared,
+		 * and name checks are not performed on the peer certificate. When a non-empty name is specified, certificate verification
+		 * automatically checks the peer hostname via X509_check_host(3) with flags as specified via SSL_set_hostflags()
+		 * X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS suppresses support for "*" as wildcard pattern in labels that have a prefix or suffix,
+		 * such as: "www*" or "*www"*/
+		SSL_set_hostflags(ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+		if (!SSL_set1_host(ssl, host.c_str())){
+			std::cerr << err_string("SSL_set1_host");
+			break;
+		}
 		/* BIO_do_connect() attempts to connect the supplied BIO. It returns 1 if the connection was established successfully.
 		 * A zero or negative value is returned if the connection could not be established,
 		 * the call BIO_should_retry() should be used for non blocking connect BIOs to determine if the call should be retried.
